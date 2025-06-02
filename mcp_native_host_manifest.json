@@ -1,0 +1,9 @@
+{
+  "name": "mcp_native_host",
+  "description": "Native Messaging Host for Gemini MCP Client to run Python script.",
+  "path": "mcp_native_host.py",
+  "type": "stdio",
+  "allowed_extensions": [
+    "gemini-mcp-client@example.com"
+  ]
+}

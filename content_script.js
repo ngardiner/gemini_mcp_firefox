@@ -1,70 +1,130 @@
-console.log("Gemini MCP Client content script loaded.");
+console.log("Gemini MCP Client content script loaded. Version 2.0");
 
-// Function to detect tool calls (placeholder)
-function detectToolCall(mutation) {
-  // This function will parse the mutation records to find tool calls.
-  // For now, it will just log the added nodes.
+// Function to send tool call to background script
+function sendToolCallToBackground(toolCallData) {
+  console.log("Sending tool call to background script:", toolCallData);
+  browser.runtime.sendMessage({
+    type: "TOOL_CALL_DETECTED",
+    payload: toolCallData
+  }).then(response => {
+    // console.log("Response from background script:", response); // Optional: handle ack from background
+  }).catch(error => {
+    console.error("Error sending message to background script:", error);
+  });
+}
+
+// Function to handle responses from the background script (coming from native host)
+function handleNativeHostResponse(message) {
+  if (message.type === "FROM_NATIVE_HOST" && message.payload) {
+    console.log("Received response from native host via background:", message.payload);
+    const responseText = message.payload.text_response; // Assuming the native host sends { text_response: "..." }
+
+    if (responseText) {
+      // 1. Find the chat input field
+      //    This selector needs to be verified on the actual gemini.google.com page.
+      //    Common patterns: textarea, input[type='text'], contenteditable divs.
+      //    Example selectors (likely need adjustment):
+      //    - document.querySelector('textarea[aria-label*="Prompt"]')
+      //    - document.querySelector('.chat-input textarea')
+      //    - document.querySelector('div[contenteditable="true"][role="textbox"]')
+      const chatInputField = document.querySelector('textarea') || document.querySelector('div[contenteditable="true"]'); // Broader attempt
+
+      if (chatInputField) {
+        console.log("Found chat input field:", chatInputField);
+
+        // 2. Inject the response text
+        //    For a textarea or input:
+        if (chatInputField.tagName === 'TEXTAREA' || chatInputField.tagName === 'INPUT') {
+            chatInputField.value = responseText;
+            // Dispatch an 'input' event to make sure any framework listeners are triggered
+            chatInputField.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+        }
+        // For a contenteditable div:
+        else if (chatInputField.isContentEditable) {
+            chatInputField.textContent = responseText;
+            // Dispatch 'input' or 'focus/blur' events if needed
+            chatInputField.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+        }
+
+        console.log("Injected response text:", responseText);
+
+        // 3. Find and click the send/submit button
+        //    This selector also needs to be verified.
+        //    Example selectors (likely need adjustment):
+        //    - document.querySelector('button[aria-label*="Send"]')
+        //    - document.querySelector('button[data-testid*="send"]')
+        //    - A button with a specific SVG icon path inside it.
+        const sendButton = document.querySelector('button[aria-label*="Send Message"], button[data-testid*="send-button"], button:has(svg[class*="send-icon"])'); // Example, needs refinement
+
+        if (sendButton) {
+          console.log("Found send button:", sendButton);
+          sendButton.click();
+          console.log("Clicked send button.");
+        } else {
+          console.error("Gemini MCP Client: Send button not found. Response injected but not submitted.");
+        }
+      } else {
+        console.error("Gemini MCP Client: Chat input field not found. Cannot inject response.");
+      }
+    } else {
+      console.warn("Gemini MCP Client: No text_response field in the payload from native host.", message.payload);
+    }
+  }
+}
+
+// Listen for messages from the background script
+browser.runtime.onMessage.addListener(handleNativeHostResponse);
+
+// Original MutationObserver logic (modified to call sendToolCallToBackground)
+function detectToolCallInMutation(mutation) {
   mutation.addedNodes.forEach(node => {
     if (node.nodeType === Node.ELEMENT_NODE) {
-      // In a real scenario, we would inspect the node's content
-      // for XML structures indicating a tool call.
-      // Example: check for <tool_code> or similar tags.
-      const potentialToolCall = node.textContent || node.innerText;
-      if (potentialToolCall && potentialToolCall.includes('<tool_code>')) {
-        console.log("Potential tool call detected:", potentialToolCall);
-        // Further parsing would be needed here to extract specifics.
-        const decodedCall = `Tool: ExtractedToolName, Parameters: {...}`; // Placeholder
-        logDebugMessage(decodedCall);
+      const potentialToolCallText = node.textContent || node.innerText;
+      // More robust tool call detection is needed here.
+      // This should parse the XML specifically.
+      // For now, we're still using a simple includes check.
+      if (potentialToolCallText && potentialToolCallText.includes('<tool_code>')) { // Placeholder for actual XML parsing
+        console.log("Potential tool call detected in node:", potentialToolCallText);
+
+        // Placeholder: Extract actual tool name and parameters
+        // This needs proper XML parsing. For now, sending the whole text.
+        const toolData = {
+          raw_xml: potentialToolCallText,
+          detected_at: new Date().toISOString()
+          // In a real scenario, you'd parse out tool_name, parameters, etc.
+        };
+        sendToolCallToBackground(toolData); // Send to background script
       }
     }
   });
 }
 
-// Function to log debug messages
-function logDebugMessage(message) {
-  console.log("[Gemini MCP Client] Intercepted call: ", message);
-}
-
-// Observer callback
 function observerCallback(mutationsList, observer) {
   for (const mutation of mutationsList) {
     if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-      // New nodes were added, let's check them
-      detectToolCall(mutation);
+      detectToolCallInMutation(mutation);
     }
   }
 }
 
-// Options for the observer (which mutations to observe)
 const observerOptions = {
-  childList: true, // Observe direct children additions/removals
-  subtree: true,   // Observe all descendants
-  attributes: false // We are not interested in attribute changes for now
+  childList: true,
+  subtree: true,
+  attributes: false
 };
 
-// Select the node that will be observed for mutations
-// This needs to be a robust selector for the chat output area in Gemini.
-// For now, we'll assume a common target like 'body' for broad observation,
-// but this should be refined to a more specific element.
-// A more specific selector might be something like 'div.chat-message-container' or similar.
-// We will need to inspect Gemini's actual DOM structure to find the correct one.
-const targetNode = document.body;
+// Refined targetNode selection - this is still a guess and needs inspection of Gemini's DOM
+// It's better to find the most specific container for chat messages.
+// Example: document.querySelector('.chat-history-container') or similar
+const targetNode = document.body; // Fallback, should be more specific
 
-// Create an observer instance linked to the callback function
 const observer = new MutationObserver(observerCallback);
 
-// Start observing the target node for configured mutations
 if (targetNode) {
   observer.observe(targetNode, observerOptions);
-  console.log("Gemini MCP Client: MutationObserver started on document.body.");
+  console.log("Gemini MCP Client: MutationObserver started. Target:", targetNode);
 } else {
   console.error("Gemini MCP Client: Target node for MutationObserver not found.");
 }
 
-// It's good practice to disconnect the observer when the script is unloaded
-// or the page is navigated away, though this is handled by the browser
-// for content scripts when the page is closed.
-// window.addEventListener('unload', () => {
-//   observer.disconnect();
-//   console.log("Gemini MCP Client: MutationObserver disconnected.");
-// });
+// No need for the old logDebugMessage function, as logging is now part of sendToolCallToBackground or handled by native host.
