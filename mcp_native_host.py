@@ -8,6 +8,7 @@ import socket
 
 SERVER_CONFIGURATIONS = []
 DISCOVERED_TOOLS = []
+PROCESSED_CALL_IDS = set() # Global set for tracking processed call_ids
 
 def print_debug(message):
     sys.stderr.write(str(message) + '\n')
@@ -54,27 +55,27 @@ def load_server_configurations(config_filename="mcp_servers_config.json"):
         valid_servers = []
         for i, server_def in enumerate(server_list_from_file):
             if not isinstance(server_def, dict):
-                print_debug(f"Warning: Server definition at index {i} is not a dictionary. Skipping.")
+                print_debug(f"Warning: Server definition at index {i} is not a dict. Skipping.")
                 continue
             server_id = server_def.get("id")
             server_type = server_def.get("type")
             if not server_id or not isinstance(server_id, str):
-                print_debug(f"Warning: Server definition at index {i} is missing 'id' or it's not a string. Skipping: {str(server_def)[:100]}")
+                print_debug(f"Warning: Server def at index {i} missing 'id'. Skipping: {str(server_def)[:100]}")
                 continue
             if not server_type or not isinstance(server_type, str):
-                print_debug(f"Warning: Server '{server_id}' (index {i}) is missing 'type' or it's not a string. Skipping.")
+                print_debug(f"Warning: Server '{server_id}' missing 'type'. Skipping.")
                 continue
             is_valid_type = True
             if server_type == "stdio":
                 if not server_def.get("command") or not isinstance(server_def.get("command"), str):
-                    print_debug(f"Warning: Stdio server '{server_id}' is missing 'command' or it's not a string. Skipping.")
+                    print_debug(f"Warning: Stdio server '{server_id}' missing 'command'. Skipping.")
                     is_valid_type = False
             elif server_type in ["streamable-http", "sse"]:
                 if not server_def.get("url") or not isinstance(server_def.get("url"), str):
-                    print_debug(f"Warning: Server '{server_id}' (type {server_type}) is missing 'url' or it's not a string. Skipping.")
+                    print_debug(f"Warning: Server '{server_id}' ({server_type}) missing 'url'. Skipping.")
                     is_valid_type = False
             else:
-                print_debug(f"Warning: Server '{server_id}' has unknown type '{server_type}'. Skipping.")
+                print_debug(f"Warning: Server '{server_id}' unknown type '{server_type}'. Skipping.")
                 is_valid_type = False
             if is_valid_type:
                 if not isinstance(server_def.get("enabled"), bool):
@@ -83,7 +84,7 @@ def load_server_configurations(config_filename="mcp_servers_config.json"):
         SERVER_CONFIGURATIONS = valid_servers
         return True
     except json.JSONDecodeError as e: print_debug(f"Error parsing JSON from {config_path}: {e}")
-    except Exception as e: print_debug(f"An unexpected error occurred while loading server config: {e}")
+    except Exception as e: print_debug(f"Unexpected error loading server config: {e}")
     return False
 
 def discover_tools_http(server_config):
@@ -110,81 +111,88 @@ def discover_tools_http(server_config):
                             tool_def['mcp_server_type'] = server_config.get("type")
                             discovered_tools_for_server.append(tool_def)
                         else:
-                            print_debug(f"Warning: Invalid tool definition received from '{server_id}' at index {i}. Skipping: {str(tool_def)[:100]}")
+                            print_debug(f"Warning: Invalid tool definition from '{server_id}' index {i}. Skipping: {str(tool_def)[:100]}")
                     print_debug(f"Successfully discovered {len(discovered_tools_for_server)} tools from '{server_id}'.")
                 else:
-                    print_debug(f"Error: Tool discovery response from '{server_id}' is not a list. Response: {str(tools_data)[:200]}")
+                    print_debug(f"Error: Tool discovery response from '{server_id}' not a list. Response: {str(tools_data)[:200]}")
             else:
-                print_debug(f"Error: Tool discovery for '{server_id}' failed with HTTP status {response.status}. Response: {response_body_for_error_logging[:200]}")
+                print_debug(f"Error: Tool discovery for '{server_id}' failed HTTP status {response.status}. Response: {response_body_for_error_logging[:200]}")
     except urllib.error.HTTPError as e:
         error_response_body = "[Could not read error response body]"
         try: error_response_body = e.read().decode('utf-8', errors='ignore')
         except: pass
-        print_debug(f"HTTPError during tool discovery for '{server_id}': {e.code} {e.reason}. Response: {error_response_body[:200]}")
-    except urllib.error.URLError as e: print_debug(f"URLError (network issue) for '{server_id}': {e.reason}")
-    except socket.timeout: print_debug(f"Timeout during tool discovery for '{server_id}' at {discovery_url}")
+        print_debug(f"HTTPError for '{server_id}': {e.code} {e.reason}. Response: {error_response_body[:200]}")
+    except urllib.error.URLError as e: print_debug(f"URLError for '{server_id}': {e.reason}")
+    except socket.timeout: print_debug(f"Timeout for '{server_id}' at {discovery_url}")
     except json.JSONDecodeError as e: print_debug(f"JSONDecodeError parsing tools from '{server_id}': {e}. Response: {response_body_for_error_logging[:200]}")
     except Exception as e: print_debug(f"Unexpected error during tool discovery for '{server_id}': {e}")
     return discovered_tools_for_server
 
 def main():
-    global DISCOVERED_TOOLS # Ensure we are modifying the global list
-    DISCOVERED_TOOLS = []    # Initialize/clear it at the start of main
-
+    global DISCOVERED_TOOLS
+    DISCOVERED_TOOLS = []
     if load_server_configurations():
-        if SERVER_CONFIGURATIONS:
-            print_debug(f"Successfully loaded {len(SERVER_CONFIGURATIONS)} MCP server configurations.")
-            # Log server details (already done in load_server_configurations or can be reiterated here if needed)
-        else:
-            print_debug("No valid server configurations found, or the file was empty/malformed.")
-    else:
-        print_debug("Failed to load MCP server configurations. Check for errors above.")
+        if SERVER_CONFIGURATIONS: print_debug(f"Loaded {len(SERVER_CONFIGURATIONS)} MCP server configurations.")
+        else: print_debug("No valid server configurations found.")
+    else: print_debug("Failed to load MCP server configurations.")
 
     print_debug("Starting tool discovery...")
     for server_conf in SERVER_CONFIGURATIONS:
         server_id = server_conf.get('id')
         server_type = server_conf.get('type')
-        is_enabled = server_conf.get('enabled', True) # Default to True if 'enabled' key is missing
-
-        if not is_enabled:
-            print_debug(f"Skipping disabled server: '{server_id}'")
-            continue
-
+        is_enabled = server_conf.get('enabled', True)
+        if not is_enabled: print_debug(f"Skipping disabled server: '{server_id}'"); continue
         print_debug(f"Processing server: '{server_id}' (Type: {server_type})")
         if server_type in ["streamable-http", "sse"]:
             tools_from_server = discover_tools_http(server_conf)
-            if tools_from_server:
-                DISCOVERED_TOOLS.extend(tools_from_server)
-                # print_debug(f"Added {len(tools_from_server)} tools from '{server_id}'.")
-        elif server_type == "stdio":
-            print_debug(f"Tool discovery for stdio server '{server_id}' is not yet implemented.")
-        else:
-            print_debug(f"Warning: Unknown server type '{server_type}' for server '{server_id}'. Cannot perform discovery.")
+            DISCOVERED_TOOLS.extend(tools_from_server)
+        elif server_type == "stdio": print_debug(f"Tool discovery for stdio server '{server_id}' not yet implemented.")
+        else: print_debug(f"Warning: Unknown server type '{server_type}' for '{server_id}'. Cannot discover.")
 
     if DISCOVERED_TOOLS:
         print_debug(f"--- Total tools discovered: {len(DISCOVERED_TOOLS)} ---")
-        # Check for duplicate tool names across different servers
         tool_names_seen = {}
         for tool in DISCOVERED_TOOLS:
             tool_name = tool.get('tool_name')
             origin_server = tool.get('mcp_server_id')
             print_debug(f"  - Found tool: '{tool_name}' from server: '{origin_server}'")
-            if tool_name in tool_names_seen:
-                print_debug(f"    WARNING: Duplicate tool_name '{tool_name}' also found on server '{tool_names_seen[tool_name]}'. Ensure names are unique or handle appropriately.")
+            if tool_name in tool_names_seen: print_debug(f"    WARNING: Duplicate tool_name '{tool_name}' also on server '{tool_names_seen[tool_name]}'.")
             tool_names_seen[tool_name] = origin_server
-    else:
-        print_debug("No tools were discovered from any active server.")
+    else: print_debug("No tools discovered.")
 
-    print_debug(f"MCP Native Host script started and initialized. Waiting for messages...")
-
+    print_debug(f"MCP Native Host script initialized. Waiting for messages...")
     while True:
         try:
             received_message = get_message()
-            if received_message is None: print_debug("No message received, browser might have closed connection. Exiting."); break
-            print_debug(f"Received message: {json.dumps(received_message)}")
+            if received_message is None: print_debug("No message from extension. Browser might have closed."); break
+
+            print_debug(f"Received message: {json.dumps(received_message)}") # Log raw message first
+
+            payload = received_message.get("payload")
+            if isinstance(payload, dict):
+                call_id = payload.get("call_id")
+                if call_id and isinstance(call_id, str) and call_id.strip(): # Ensure call_id is a non-empty string
+                    if call_id in PROCESSED_CALL_IDS:
+                        print_debug(f"Duplicate call_id '{call_id}' received. Skipping.")
+                        continue # Skip to the next message
+                    PROCESSED_CALL_IDS.add(call_id)
+                    print_debug(f"Added call_id '{call_id}' to processed set.")
+                elif call_id is not None: # It's present but not a non-empty string (e.g. empty string, null from JS if attribute missing)
+                     print_debug(f"Warning: Received tool call with invalid or empty call_id ('{call_id}'). Processing without duplicate check for this call.")
+                else: # call_id key was not in payload
+                    print_debug("Warning: Received tool call without 'call_id' in payload. Processing without duplicate check for this call.")
+            else:
+                print_debug("Warning: Received message payload is not a dictionary. Cannot check for call_id.")
+
+            # Placeholder for actual tool execution logic based on payload['tool_name']
+            # This is where you would look up the tool in DISCOVERED_TOOLS and proxy to its mcp_server_url
+            # For now, just using the example response if it's a tool call type message
+            if received_message.get("type") == "TOOL_CALL_DETECTED":
+                 send_example_response(received_message.get("tabId"), payload)
+
         except EOFError: print_debug("EOF encountered, stdin closed. Exiting."); break
         except Exception as e:
-            print_debug(f"Error processing message: {e}")
+            print_debug(f"Error processing message loop: {e}")
             if isinstance(e, struct.error): print_debug("Struct error, likely malformed message length. Exiting."); break
 
 if __name__ == '__main__':

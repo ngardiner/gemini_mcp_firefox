@@ -85,37 +85,51 @@ function parseFunctionCalls(xmlString) {
   const parserError = doc.querySelector("parsererror");
   if (parserError) {
     console.error("Gemini MCP Client: XML parsing error:", parserError.textContent);
-    // Potentially return raw string or an error object
-    // For now, returning empty if major parsing error
-    return [{ raw_xml: xmlString, error: "XML parsing error", tool_name: null, parameters: {} }];
+    return [{
+      raw_xml: xmlString,
+      error: "XML parsing error: " + parserError.textContent,
+      tool_name: null,
+      parameters: {},
+      call_id: null
+    }];
   }
 
   const functionCallsElement = doc.documentElement.nodeName === 'function_calls' ? doc.documentElement : doc.querySelector("function_calls");
 
   if (!functionCallsElement) {
     console.warn("Gemini MCP Client: <function_calls> tag not found in the XML structure.");
-    return [{ raw_xml: xmlString, error: "<function_calls> not found", tool_name: null, parameters: {} }];
+    return [{
+      raw_xml: xmlString,
+      error: "<function_calls> not found",
+      tool_name: null,
+      parameters: {},
+      call_id: null
+    }];
   }
 
-  let invokeElements = functionCallsElement.querySelectorAll("invoke");
+  const invokeElements = functionCallsElement.querySelectorAll("invoke");
 
   if (invokeElements.length === 0) {
-    // Fallback: maybe the xmlString itself is a single invoke if function_calls was missing but invoke was found
-    if (doc.documentElement.nodeName === 'invoke') {
-        invokeElements = [doc.documentElement];
-    } else {
-        console.warn("Gemini MCP Client: No <invoke> tags found within <function_calls>.");
-        // return [{ raw_xml: xmlString, error: "No <invoke> tags found", tool_name: null, parameters: {} }];
-        return []; // Return empty array if no invokes found
-    }
+    // This case should ideally be handled by the improved wrapping logic in detectToolCallInMutation
+    // or by ensuring xmlString always has a <function_calls> root if it contains invokes.
+    console.warn("Gemini MCP Client: No <invoke> tags found within the primary parsed structure.");
+    return [];
   }
 
   invokeElements.forEach(invokeElement => {
     const toolName = invokeElement.getAttribute("name");
+    const callId = invokeElement.getAttribute("call_id"); // Extract call_id
+
     if (!toolName) {
       console.warn("Gemini MCP Client: <invoke> tag missing 'name' attribute.", invokeElement.outerHTML);
-      // tools.push({ tool_name: null, parameters: {}, raw_xml: invokeElement.outerHTML, error: "Invoke tag missing name" });
-      return; // Skip this invoke element
+      // Optionally push an error object or just skip
+      // tools.push({ tool_name: null, parameters: {}, call_id: callId, raw_xml: invokeElement.outerHTML, error: "Invoke tag missing name" });
+      return; // Skip this invoke element if name is missing
+    }
+    // It's debatable if a missing call_id should be a hard error or just logged.
+    // For now, we'll pass it as null if missing, but log a warning.
+    if (!callId) {
+        console.warn("Gemini MCP Client: <invoke> tag missing 'call_id' attribute for tool:", toolName, invokeElement.outerHTML);
     }
 
     const parameters = {};
@@ -127,9 +141,8 @@ function parseFunctionCalls(xmlString) {
         console.warn("Gemini MCP Client: <parameter> tag missing 'name' attribute.", paramElement.outerHTML);
         return; // Skip this parameter
       }
-      // Check if the parameter has child elements vs only text content
       if (paramElement.children.length > 0) {
-        parameters[paramName] = paramElement.innerHTML.trim(); // Serialize children as HTML string
+        parameters[paramName] = paramElement.innerHTML.trim();
       } else {
         parameters[paramName] = paramElement.textContent.trim();
       }
@@ -138,60 +151,125 @@ function parseFunctionCalls(xmlString) {
     tools.push({
       tool_name: toolName,
       parameters: parameters,
-      raw_xml: invokeElement.outerHTML // Or xmlString if you want the whole <function_calls> block
+      call_id: callId, // Add call_id to the toolData object
+      raw_xml: invokeElement.outerHTML
     });
   });
 
   return tools;
 }
 
-// Modify detectToolCallInMutation to handle the array from parseFunctionCalls
 function detectToolCallInMutation(mutation) {
-  mutation.addedNodes.forEach(node => {
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      let potentialToolCallText = "";
-      // Prioritize direct function_calls element or one containing it
-      if (node.matches('function_calls') || node.querySelector('function_calls')) {
-          const fcElement = node.matches('function_calls') ? node : node.querySelector('function_calls');
-          potentialToolCallText = fcElement.outerHTML;
-      } else if (node.matches('invoke')) { // Handle case where a single invoke might be added
-          potentialToolCallText = node.outerHTML; // Wrap it or assume parseFunctionCalls can handle it
-      } else if (node.textContent && (node.textContent.includes('<function_calls>') || node.textContent.includes('<invoke'))) {
-          potentialToolCallText = node.textContent; // Fallback
-      }
+  mutation.addedNodes.forEach(addedNode => {
+    if (addedNode.nodeType !== Node.ELEMENT_NODE) return;
 
-      if (potentialToolCallText) {
-        // Ensure the string is a complete XML document for the parser,
-        // especially if we only grabbed an invoke node's outerHTML.
-        // If it doesn't start with <function_calls but is an invoke, wrap it.
-        if (!potentialToolCallText.trim().startsWith('<function_calls>') && potentialToolCallText.trim().startsWith('<invoke')) {
+    // Find all potential <invoke> elements within the addedNode context.
+    // This could be the addedNode itself if it's an invoke, or children if it's a container.
+    let potentialInvokeElements = [];
+    if (addedNode.matches('invoke')) {
+        potentialInvokeElements.push(addedNode);
+    } else {
+        // QuerySelectorAll is not available on text nodes, ensure addedNode is Element.
+        if (typeof addedNode.querySelectorAll === 'function') {
+            potentialInvokeElements.push(...addedNode.querySelectorAll('invoke'));
+        }
+    }
+
+    // If no <invoke> elements found directly, check if the addedNode contains a <function_calls> block
+    // that might wrap <invoke> elements which were not directly part of the initially added DOM snippet's
+    // direct structure but part of its conceptual content (e.g. if outerHTML of function_calls was used).
+    if (potentialInvokeElements.length === 0 && typeof addedNode.querySelector === 'function' && addedNode.querySelector('function_calls')){
+        // This path is more complex if the actual <invoke> nodes are not directly in `addedNode`'s queryable DOM yet.
+        // For now, we primarily rely on finding <invoke> tags directly or as immediate children.
+        // The string parsing later will handle cases where `outerHTML` of `function_calls` is processed.
+    }
+
+    // Step 1: Check existing <invoke> DOM elements for being already processed.
+    potentialInvokeElements.forEach(invokeElem => {
+        if (invokeElem.getAttribute('data-mcp-processed') === 'true') {
+            console.log("Gemini MCP Client: Skipping already processed <invoke> element with call_id:", invokeElem.getAttribute('data-mcp-call-id'));
+            return; // Skip this specific invoke element
+        }
+    });
+
+    // Step 2: Extract XML string for parsing (this part might lead to reparsing if not careful)
+    // The goal is to get the full <function_calls> block if possible for context.
+    let potentialToolCallText = "";
+    let sourceIsOuterHTML = false;
+    if (addedNode.matches('function_calls') || (typeof addedNode.querySelector === 'function' && addedNode.querySelector('function_calls'))) {
+        const fcElement = addedNode.matches('function_calls') ? addedNode : addedNode.querySelector('function_calls');
+        potentialToolCallText = fcElement.outerHTML;
+        sourceIsOuterHTML = true;
+    } else if (addedNode.matches('invoke')) {
+        potentialToolCallText = addedNode.outerHTML;
+        sourceIsOuterHTML = true; // It's an invoke node's outerHTML
+    } else if (addedNode.textContent) {
+        let text = addedNode.textContent;
+        let functionCallsIndex = text.indexOf('<function_calls>');
+        let invokeIndex = text.indexOf('<invoke>');
+        if (functionCallsIndex !== -1 && (invokeIndex === -1 || functionCallsIndex < invokeIndex)) {
+            potentialToolCallText = text.substring(functionCallsIndex);
+        } else if (invokeIndex !== -1) {
+            potentialToolCallText = text.substring(invokeIndex);
+        } else { potentialToolCallText = ""; }
+    }
+    potentialToolCallText = potentialToolCallText.trim();
+
+    if (potentialToolCallText) {
+        if (potentialToolCallText.startsWith('<invoke')) {
+             if (!potentialToolCallText.includes('<function_calls>')) { // Avoid double wrap
+                 potentialToolCallText = `<function_calls>${potentialToolCallText}</function_calls>`;
+             }
+        } else if (sourceIsOuterHTML && addedNode.matches('invoke') && !potentialToolCallText.includes('<function_calls>')){
             potentialToolCallText = `<function_calls>${potentialToolCallText}</function_calls>`;
         }
 
-        console.log("Gemini MCP Client: Potential tool call structure identified. Raw text for parsing:", potentialToolCallText);
+        console.log("Gemini MCP Client: Text for parsing:", potentialToolCallText);
         const parsedToolDataArray = parseFunctionCalls(potentialToolCallText);
 
         if (parsedToolDataArray && parsedToolDataArray.length > 0) {
           parsedToolDataArray.forEach(parsedToolData => {
-            if (parsedToolData.tool_name) { // Check if tool_name is valid after parsing
-              console.log("Gemini MCP Client: Successfully parsed tool data:", parsedToolData);
-              sendToolCallToBackground(parsedToolData);
-            } else if (parsedToolData.error) {
-              console.warn("Gemini MCP Client: Error parsing tool data, but sending raw:", parsedToolData);
-              // Decide if you want to send data even if parsing partially failed
-              // sendToolCallToBackground({ raw_xml: parsedToolData.raw_xml, error: parsedToolData.error, tool_name: null });
+            if (parsedToolData.error) {
+                console.warn("Gemini MCP Client: Error parsing tool data, skipping send:", parsedToolData);
+                return; // Skip if there was a parsing error from parseFunctionCalls
+            }
+            if (parsedToolData.tool_name && parsedToolData.call_id) {
+                // Find the corresponding DOM element to mark it.
+                // This assumes call_id is unique within the scope of `addedNode` or its children.
+                let invokeToMark = null;
+                if (addedNode.matches('invoke') && addedNode.getAttribute('call_id') === parsedToolData.call_id) {
+                    invokeToMark = addedNode;
+                } else if (typeof addedNode.querySelectorAll === 'function'){
+                    // Query within the context of the addedNode that contained the tool call string
+                    invokeToMark = addedNode.querySelector(`invoke[call_id="${parsedToolData.call_id}"]`);
+                }
+
+                if (invokeToMark) {
+                    if (invokeToMark.getAttribute('data-mcp-processed') === 'true') {
+                        console.log("Gemini MCP Client: Tool call already marked processed, skipping send for call_id:", parsedToolData.call_id);
+                        return;
+                    }
+                    console.log("Gemini MCP Client: Successfully parsed tool data:", parsedToolData);
+                    sendToolCallToBackground(parsedToolData);
+                    invokeToMark.setAttribute('data-mcp-processed', 'true');
+                    invokeToMark.setAttribute('data-mcp-call-id', parsedToolData.call_id);
+                    console.log("Gemini MCP Client: Marked invoke element as processed for call_id:", parsedToolData.call_id);
+                } else {
+                    // If we can't find the specific invoke element to mark (e.g. if parsing from textContent of a large block)
+                    // we might still send it, but won't get DOM-based re-processing protection for this specific instance.
+                    console.warn("Gemini MCP Client: Could not find specific invoke DOM element to mark for call_id:", parsedToolData.call_id, ". Sending data anyway.");
+                    sendToolCallToBackground(parsedToolData);
+                }
+            } else if (parsedToolData.tool_name && !parsedToolData.call_id) {
+                console.warn("Gemini MCP Client: Parsed tool data is missing call_id. Sending without marking DOM.", parsedToolData);
+                sendToolCallToBackground(parsedToolData);
             }
           });
-        } else {
-          // This case might be hit if parseFunctionCalls returns an empty array (e.g. no invokes found)
-          // Or if there was a non-XML string that passed the initial checks.
-          console.log("Gemini MCP Client: No tool data parsed or empty array returned from parseFunctionCalls for text:", potentialToolCallText);
         }
       }
     }
   });
 }
-
 function observerCallback(mutationsList, observer) {
   for (const mutation of mutationsList) {
     if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
