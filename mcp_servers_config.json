@@ -1,0 +1,39 @@
+{
+  "mcpServers": [
+    {
+      "id": "local_python_stdio_server",
+      "type": "stdio",
+      "enabled": true,
+      "command": "python",
+      "args": ["/path/to/your/local_mcp_stdio_script.py", "--mode", "stdio"],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      },
+      "notes": "Example of a local Python-based MCP server running over stdio. Update the path in 'args'."
+    },
+    {
+      "id": "remote_tool_api_http",
+      "type": "streamable-http",
+      "enabled": true,
+      "url": "https://api.exampletools.com/mcp_endpoint",
+      "headers": {
+        "X-Custom-Auth-Token": "YOUR_API_TOKEN_HERE"
+      },
+      "notes": "Example of a remote MCP server accessed via HTTP. The /tools/list endpoint will be appended to the URL."
+    },
+    {
+      "id": "experimental_sse_service",
+      "type": "sse",
+      "enabled": false,
+      "url": "http://127.0.0.1:9000/mcp_events",
+      "notes": "An experimental SSE-based MCP service, currently disabled. Discovery would append /tools/list."
+    },
+    {
+      "id": "another_http_service_no_auth",
+      "type": "streamable-http",
+      "enabled": true,
+      "url": "http://public.mcpservice.org/api",
+      "notes": "Publicly accessible MCP service with no special headers."
+    }
+  ]
+}
