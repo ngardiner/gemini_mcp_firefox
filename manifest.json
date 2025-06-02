@@ -1,16 +1,32 @@
 {
   "manifest_version": 2,
   "name": "Gemini MCP Client",
-  "version": "0.1.0",
-  "description": "Monitors gemini.google.com for tool calls and intercepts them.",
+  "version": "0.2.0",
+  "description": "Monitors gemini.google.com for tool calls and intercepts them via a native messaging host.",
   "permissions": [
     "activeTab",
+    "nativeMessaging",
     "https://gemini.google.com/*"
   ],
+  "background": {
+    "scripts": ["background.js"]
+  },
   "content_scripts": [
     {
       "matches": ["https://gemini.google.com/*"],
       "js": ["content_script.js"]
     }
-  ]
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "gemini-mcp-client@example.com"
+    }
+  },
+  "native_messaging_hosts": {
+    "mcp_native_host": {
+      "description": "Native messaging host for Gemini MCP Client",
+      "path": "mcp_native_host_manifest.json",
+      "type": "stdio"
+    }
+  }
 }
