@@ -171,7 +171,10 @@ function detectToolCallInMutation(mutation) {
     } else {
         // QuerySelectorAll is not available on text nodes, ensure addedNode is Element.
         if (typeof addedNode.querySelectorAll === 'function') {
-            potentialInvokeElements.push(...addedNode.querySelectorAll('invoke'));
+            const nodeList = addedNode.querySelectorAll('invoke');
+            for (let i = 0; i < nodeList.length; i++) {
+              potentialInvokeElements.push(nodeList[i]);
+            }
         }
     }
 
