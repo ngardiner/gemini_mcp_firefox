@@ -43,7 +43,14 @@ This is the more complex part and requires careful setup. The extension needs to
       *   Ensure you have Python 3 installed. You can download it from [python.org](https://www.python.org/).
       *   Verify it's in your system's PATH.
 
-   b. **Prepare the Python Script (`mcp_native_host.py`):**
+   b. **Dependencies:**
+      The `mcp_native_host.py` script now relies on the `fastmcp` library (hypothetical, for this project) to communicate with MCP servers. If this were a real library, you would install it, for example:
+      ```bash
+      pip install fastmcp
+      ```
+      Since `fastmcp` is hypothetical for this project, the script includes an internal mock for basic structural execution if the library is not found. This allows the script to run for development and testing of other features, but it will not perform real tool discovery without the actual library.
+
+   c. **Prepare the Python Script (`mcp_native_host.py`):**
       *   This script is included in the repository.
       *   **On Linux/macOS:** Make it executable: `chmod +x /path/to/your/mcp_native_host.py`
       *   Ensure it has the correct shebang line at the top: `#!/usr/bin/env python3` (or your Python 3 path).
@@ -122,15 +129,16 @@ The `mcp_servers_config.json` file should contain a JSON object with a top-level
 An example file, `mcp_servers_config.json`, is included in the repository with various sample server definitions.
 
 **Dynamic Tool Discovery at Startup:**
-Upon starting, `mcp_native_host.py` reads the server definitions from `mcp_servers_config.json`.
+Upon starting, `mcp_native_host.py` reads server definitions from `mcp_servers_config.json`. Using the (hypothetical) `fastmcp` library, it then attempts to connect to each **enabled** server based on its configured type (`stdio`, `streamable-http`, `sse`).
 - The script will log details for each server configuration it loads or any errors encountered during parsing.
-- For each **enabled** server of type `streamable-http` or `sse`, the script will attempt to make an HTTP GET request to `[server_url]/tools/list` (where `[server_url]` is taken from the config).
-- The JSON response from this endpoint is expected to be a list of tool definitions (each including `tool_name`, `description`, and `parameters_schema`).
+- For each server, it calls the standard MCP method `tools/list` to discover the tools it offers. The `fastmcp` library handles the underlying transport protocols for these calls based on the server type.
+  - For `streamable-http` and `sse` types, this involves an HTTP GET request to `[server_url]/tools/list`.
+  - For `stdio` type, this involves starting the configured command and communicating over stdin/stdout to make the `tools/list` request.
+- The JSON response from the `tools/list` call is expected to be a list of tool definitions (each including `tool_name`, `description`, and `parameters_schema`).
 - These discovered tools are then aggregated. The script will log (to stderr) the total number of tools found and list each tool along with the ID of the server it was discovered from (e.g., `DEBUG:   - Found tool: 'get_weather' from server: 'remote_tool_api_http'`).
-- **Note:** Tool discovery for `stdio` type servers is **not yet implemented** in the current version. These server configurations will be loaded, and a message logged, but no tools will be actively discovered from them at this time.
-- Check the script's startup logs (stderr) for details on which servers were processed, what tools (if any) were discovered, or if errors occurred during discovery.
+- Check the script's startup logs (stderr) for details on which servers were processed, what tools (if any) were discovered, or if errors occurred during discovery (e.g., connection errors, errors from `fastmcp`).
 
-This dynamic discovery allows for a more flexible system where tools are managed by their respective MCP servers.
+This dynamic discovery allows for a more flexible system where tools are managed by their respective MCP servers, and the `fastmcp` library abstracts the communication details.
 
 ### 3. Testing and Debugging
 
