@@ -17,15 +17,22 @@ Setting up this extension involves two main parts: loading the Firefox extension
 
 ### 1. Firefox Extension Setup
 
-   a. **Download or Clone:** Ensure you have all extension files (`manifest.json`, `content_script.js`, `background.js`, `mcp_native_host.py`, `mcp_native_host_manifest.json`, and this `README.md`) in a local directory.
-   b. **Open Firefox.**
-   c. **Navigate to Add-ons:**
+   1 **Download or Clone:** Ensure you have all extension files (`manifest.json`, `content_script.js`, `background.js`, `mcp_native_host.py`, `mcp_native_host_manifest.json`, and this `README.md`) in a local directory.
+   
+   2 **Open Firefox.**
+   
+   3 **Navigate to Add-ons:**
+   
       *   Type `about:debugging` in the address bar and press Enter.
       *   Alternatively, click the menu button (☰) -> Add-ons and themes -> Extensions.
-   d. **Load Temporary Add-on:**
+      
+   4 **Load Temporary Add-on:**
+   
       *   In the `about:debugging` page, click on "This Firefox" (or your Firefox version) on the left sidebar.
       *   Click the "Load Temporary Add-on…" button.
-   e. **Select the Manifest File:**
+      
+   5 **Select the Manifest File:**
+   
       *   Browse to the directory where you saved the extension files.
       *   Select the main extension `manifest.json` file and click "Open".
 
@@ -33,21 +40,26 @@ Setting up this extension involves two main parts: loading the Firefox extension
 
 This is the more complex part and requires careful setup. The extension needs to communicate with the `mcp_native_host.py` script.
 
-   a. **Install Python:**
+   1 **Install Python:**
+   
       *   Ensure you have Python 3 installed. You can download it from [python.org](https://www.python.org/).
       *   Verify it's in your system's PATH.
 
-   b. **Prepare the Python Script (`mcp_native_host.py`):**
+   2 **Prepare the Python Script (`mcp_native_host.py`):**
+   
       *   This script is included in the repository.
       *   **On Linux/macOS:** Make it executable: `chmod +x /path/to/your/mcp_native_host.py`
       *   Ensure it has the correct shebang line at the top: `#!/usr/bin/env python3` (or your Python 3 path).
       *   Place this script in a known location. For example, you can place it in the same directory where you will put the native messaging host manifest file (see next step), or another directory of your choice.
 
-   c. **Configure and Register the Native Messaging Host Manifest (`mcp_native_host_manifest.json`):**
+   3 **Configure and Register the Native Messaging Host Manifest (`mcp_native_host_manifest.json`):**
+   
       This JSON file tells Firefox where to find your Python script and which extension can talk to it.
-      *   **Edit `mcp_native_host_manifest.json`:**
-          The provided `mcp_native_host_manifest.json` has a `"path"` field:
-          ```json
+      
+   * **Edit `mcp_native_host_manifest.json`:**
+     The provided `mcp_native_host_manifest.json` has a `"path"` field:
+     
+     ```json
           {
             "name": "mcp_native_host",
             "description": "Native Messaging Host for Gemini MCP Client to run Python script.",
@@ -57,11 +69,12 @@ This is the more complex part and requires careful setup. The extension needs to
               "gemini-mcp-client@example.com"
             ]
           }
-          ```
-          You **MUST** update the `"path"` value in `mcp_native_host_manifest.json` to be the **absolute path** to your `mcp_native_host.py` script.
-          For example:
-            - Windows: `"path": "C:\\Users\\YourName\\path\\to\\mcp_native_host.py"` (use double backslashes) or you might need to invoke python directly like `"path": "C:\\Path\\To\\Python\\python.exe", "C:\\Users\\YourName\\path\\to\\mcp_native_host.py"`. Simpler is often a .bat wrapper.
-            - Linux/macOS: `"path": "/home/yourname/path/to/mcp_native_host.py"`
+          
+     ```
+     You **MUST** update the `"path"` value in `mcp_native_host_manifest.json` to be the **absolute path** to your `mcp_native_host.py` script.
+     For example:
+      - Windows: `"path": "C:\\Users\\YourName\\path\\to\\mcp_native_host.py"` (use double backslashes) or you might need to invoke python directly like `"path": "C:\\Path\\To\\Python\\python.exe", "C:\\Users\\YourName\\path\\to\\mcp_native_host.py"`. Simpler is often a .bat wrapper.
+      - Linux/macOS: `"path": "/home/yourname/path/to/mcp_native_host.py"`
 
       *   **Place the edited `mcp_native_host_manifest.json` into the correct Firefox directory, naming the file `mcp_native_host.json` (matching the `"name"` field):**
           *   **Windows:**
