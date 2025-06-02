@@ -257,7 +257,8 @@ function detectToolCallInMutation(mutation) {
                 } else {
                     // If we can't find the specific invoke element to mark (e.g. if parsing from textContent of a large block)
                     // we might still send it, but won't get DOM-based re-processing protection for this specific instance.
-                    console.warn("Gemini MCP Client: Could not find specific invoke DOM element to mark for call_id:", parsedToolData.call_id, ". Sending data anyway.");
+                    // ***** MODIFIED LINE BELOW *****
+                    console.warn("Gemini MCP Client: Could not find specific invoke DOM element to mark for call_id: " + parsedToolData.call_id + ". Sending data anyway.");
                     sendToolCallToBackground(parsedToolData);
                 }
             } else if (parsedToolData.tool_name && !parsedToolData.call_id) {
