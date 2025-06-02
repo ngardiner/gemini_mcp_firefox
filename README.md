@@ -17,24 +17,25 @@ Setting up this extension involves two main parts: loading the Firefox extension
 
 ### 1. Firefox Extension Setup
 
-   1 **Download or Clone:** Ensure you have all extension files (`manifest.json`, `content_script.js`, `background.js`, `mcp_native_host.py`, `mcp_native_host_manifest.json`, and this `README.md`) in a local directory.
+1 **Download or Clone:** 
+ * Ensure you have all extension files (`manifest.json`, `content_script.js`, `background.js`, `mcp_native_host.py`, `mcp_native_host_manifest.json`, and this `README.md`) in a local directory.
    
-   2 **Open Firefox.**
+2 **Open Firefox.**
    
-   3 **Navigate to Add-ons:**
+3 **Navigate to Add-ons:**
    
-      *   Type `about:debugging` in the address bar and press Enter.
-      *   Alternatively, click the menu button (☰) -> Add-ons and themes -> Extensions.
+  *   Type `about:debugging` in the address bar and press Enter.
+  *   Alternatively, click the menu button (☰) -> Add-ons and themes -> Extensions.
       
-   4 **Load Temporary Add-on:**
+4 **Load Temporary Add-on:**
    
-      *   In the `about:debugging` page, click on "This Firefox" (or your Firefox version) on the left sidebar.
-      *   Click the "Load Temporary Add-on…" button.
+  *   In the `about:debugging` page, click on "This Firefox" (or your Firefox version) on the left sidebar.
+  *   Click the "Load Temporary Add-on…" button.
       
-   5 **Select the Manifest File:**
+5 **Select the Manifest File:**
    
-      *   Browse to the directory where you saved the extension files.
-      *   Select the main extension `manifest.json` file and click "Open".
+  *   Browse to the directory where you saved the extension files.
+  *   Select the main extension `manifest.json` file and click "Open".
 
 ### 2. Python Native Messaging Host Setup
 
