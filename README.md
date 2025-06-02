@@ -6,12 +6,15 @@ This is a lightweight Firefox extension that monitors `gemini.google.com` for ch
 
 *   Injects a content script into `gemini.google.com`.
 *   Uses a `MutationObserver` to watch for new messages in the chat.
-*   Uses `DOMParser` to robustly parse XML-like tool call structures, looking for `<function_calls>` and `<invoke name='...'>` patterns in new chat messages.
+*   Uses `DOMParser` to robustly parse XML-like tool call structures, looking for `<function_calls>` and `<invoke name='...' call_id='...'>` patterns in new chat messages.
+*   Extracts `call_id` from `<invoke>` tags, which is used for deduplication in the Python host and for marking processed elements in the DOM.
 *   Supports detection of multiple, parallel tool calls if Gemini outputs several `<invoke>` operations within a single `<function_calls>` block. Each is processed individually.
 *   For tool parameters that contain nested XML structures, the raw inner HTML of the `<parameter>` tag is captured as a string.
-*   When a potential tool call is detected, its structured data (tool name and parameters) is sent to a background script.
-*   The background script forwards the tool call data to a Python script (`mcp_native_host.py`) using Firefox's Native Messaging API.
-*   The Python script receives the tool call, prints it to its console (for debugging/logging).
+*   When a potential tool call is detected, its structured data (tool name, parameters, `call_id`) is sent to a background script.
+*   The background script forwards the tool call data to the Python native host script (`mcp_native_host.py`).
+*   **`call_id` Tracking (Deduplication):** The Python script maintains a set of processed `call_id`s for the current session. If a `call_id` is received that has already been processed, the script skips it to prevent duplicate actions.
+*   **Visual DOM Markers:** After a tool call is sent from the content script, the corresponding `<invoke>` DOM element in the Gemini interface is marked with a `data-mcp-processed="true"` attribute. This helps prevent reprocessing by the content script and can be used for custom styling.
+*   The Python script receives the tool call, logs it, and (currently) sends back an example response. (Full proxying to MCP servers based on `call_id` and discovered tools is the next step).
 *   The architecture supports bidirectional communication, allowing the Python script to send a response back to the extension, which can then inject it into the Gemini chat window and auto-submit.
 
 ## Setup Instructions
@@ -165,15 +168,17 @@ This dynamic discovery allows for a more flexible system where tools are managed
 
 ## How it Works (Briefly)
 
-1.  `content_script.js` on `gemini.google.com` observes new chat messages.
-2.  If a message appears to contain a tool call (i.e., includes `<function_calls>` or `<invoke>` elements), it uses `DOMParser` to parse the structure.
-3.  It extracts the tool name(s) and parameters. If parameters have nested XML, their `innerHTML` is taken. It can process multiple `<invoke>` calls from one `<function_calls>` block.
-4.  The structured tool data is sent to `background.js`.
-5.  `background.js` starts `mcp_native_host.py` (via the registered native messaging host manifest).
-4.  `background.js` sends the data to `mcp_native_host.py` over `stdin`.
-5.  `mcp_native_host.py` prints the received data (for now) and can send a JSON response back via `stdout`.
-6.  `background.js` receives the response and forwards it to `content_script.js`.
-7.  `content_script.js` injects the response into Gemini's input field and tries to submit it.
+1.  `content_script.js` on `gemini.google.com` observes new chat messages using `MutationObserver`.
+2.  If a new message appears to contain a tool call (i.e., includes `<function_calls>` or `<invoke>` elements), the script uses `DOMParser` to parse the XML structure.
+3.  It extracts the tool name, parameters, and the `call_id` attribute from each `<invoke>` element. If parameters have nested XML, their `innerHTML` is taken. It can process multiple `<invoke>` calls from one `<function_calls>` block.
+4.  Before sending, it checks if the specific `<invoke>` DOM element (if identifiable) has already been marked with `data-mcp-processed="true"`. If so, it skips it.
+5.  The structured tool data (including `call_id`) is sent to `background.js`.
+6.  Upon successful sending, `content_script.js` marks the `<invoke>` DOM element with `data-mcp-processed="true"` and `data-mcp-call-id="[call_id_value]"`.
+7.  `background.js` forwards the data to `mcp_native_host.py` over `stdin`.
+8.  `mcp_native_host.py` checks the `call_id` against its set of `PROCESSED_CALL_IDS`. If the `call_id` has been seen before, the request is ignored (logged as duplicate). Otherwise, the `call_id` is added to the set.
+9.  The Python script (currently) prints the received data and can send an example JSON response back via `stdout`. (Future: it will proxy to the correct MCP server).
+10. `background.js` receives any response from the native host and forwards it to `content_script.js`.
+11. `content_script.js` injects the response text into Gemini's input field and attempts to submit it.
 
 ## Future Development
 
