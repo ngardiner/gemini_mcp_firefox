@@ -241,7 +241,8 @@ function detectToolCallInMutation(mutation) {
                     invokeToMark = addedNode;
                 } else if (typeof addedNode.querySelectorAll === 'function'){
                     // Query within the context of the addedNode that contained the tool call string
-                    invokeToMark = addedNode.querySelector(`invoke[call_id="${parsedToolData.call_id}"]`);
+                    const callIdValue = String(parsedToolData.call_id).replace(/"/g, '\\"'); // Replaces " with \\"
+                    invokeToMark = addedNode.querySelector(`invoke[call_id="${callIdValue}"]`);
                 }
 
                 if (invokeToMark) {
