@@ -6,8 +6,11 @@ This is a lightweight Firefox extension that monitors `gemini.google.com` for ch
 
 *   Injects a content script into `gemini.google.com`.
 *   Uses a `MutationObserver` to watch for new messages in the chat.
-*   When a potential tool call (containing `<tool_code>`) is detected, it's sent to a background script.
-*   The background script forwards the tool call to a Python script (`mcp_native_host.py`) using Firefox's Native Messaging API.
+*   Uses `DOMParser` to robustly parse XML-like tool call structures, looking for `<function_calls>` and `<invoke name='...'>` patterns in new chat messages.
+*   Supports detection of multiple, parallel tool calls if Gemini outputs several `<invoke>` operations within a single `<function_calls>` block. Each is processed individually.
+*   For tool parameters that contain nested XML structures, the raw inner HTML of the `<parameter>` tag is captured as a string.
+*   When a potential tool call is detected, its structured data (tool name and parameters) is sent to a background script.
+*   The background script forwards the tool call data to a Python script (`mcp_native_host.py`) using Firefox's Native Messaging API.
 *   The Python script receives the tool call, prints it to its console (for debugging/logging).
 *   The architecture supports bidirectional communication, allowing the Python script to send a response back to the extension, which can then inject it into the Gemini chat window and auto-submit.
 
@@ -104,9 +107,11 @@ This is the more complex part and requires careful setup. The extension needs to
 
 ## How it Works (Briefly)
 
-1.  `content_script.js` on `gemini.google.com` sees a tool call.
-2.  It sends the tool call data to `background.js`.
-3.  `background.js` starts `mcp_native_host.py` (via the registered native messaging host manifest).
+1.  `content_script.js` on `gemini.google.com` observes new chat messages.
+2.  If a message appears to contain a tool call (i.e., includes `<function_calls>` or `<invoke>` elements), it uses `DOMParser` to parse the structure.
+3.  It extracts the tool name(s) and parameters. If parameters have nested XML, their `innerHTML` is taken. It can process multiple `<invoke>` calls from one `<function_calls>` block.
+4.  The structured tool data is sent to `background.js`.
+5.  `background.js` starts `mcp_native_host.py` (via the registered native messaging host manifest).
 4.  `background.js` sends the data to `mcp_native_host.py` over `stdin`.
 5.  `mcp_native_host.py` prints the received data (for now) and can send a JSON response back via `stdout`.
 6.  `background.js` receives the response and forwards it to `content_script.js`.
@@ -114,7 +119,7 @@ This is the more complex part and requires careful setup. The extension needs to
 
 ## Future Development
 
-*   More precise XML parsing of tool calls in `content_script.js`.
+*   The tool call parsing in `content_script.js` was upgraded from regular expressions to the browser's standard `DOMParser` for improved accuracy and robustness against variations in XML structure. This allows for more reliable extraction of tool names and parameters, including support for parallel tool invocations and capturing nested XML within parameters.
 *   Actual implementation of MCP server communication in `mcp_native_host.py`.
 *   Robust error handling and user feedback within the extension.
 *   Refining DOM selectors for Gemini's chat input and send button for better reliability.
