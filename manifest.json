@@ -21,12 +21,5 @@
     "gecko": {
       "id": "gemini-mcp-client@example.com"
     }
-  },
-  "native_messaging_hosts": {
-    "mcp_native_host": {
-      "description": "Native messaging host for Gemini MCP Client",
-      "path": "mcp_native_host_manifest.json",
-      "type": "stdio"
-    }
   }
 }
