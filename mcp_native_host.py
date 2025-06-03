@@ -124,7 +124,7 @@ def parse_tool_call_xml(xml_string, received_call_id_attr=None):
         # xml_string = xml_string.replace('&', '&amp;') # ET usually handles this. Be careful not to double-escape.
 
         root = ET.fromstring(xml_string)
-        
+
         invoke_elements = []
         if root.tag == 'function_calls':
             invoke_elements = root.findall('invoke')
@@ -147,7 +147,7 @@ def parse_tool_call_xml(xml_string, received_call_id_attr=None):
         for invoke_element in invoke_elements:
             tool_name = invoke_element.get('name')
             call_id_from_xml = invoke_element.get('call_id')
-            
+
             final_call_id = call_id_from_xml # Prefer call_id from XML content
             if not final_call_id and received_call_id_attr:
                 final_call_id = received_call_id_attr
@@ -168,17 +168,17 @@ def parse_tool_call_xml(xml_string, received_call_id_attr=None):
             for param_element in invoke_element.findall('parameter'):
                 param_name = param_element.get('name')
                 if param_name:
-                    parameters[param_name] = param_element.text.strip() if param_element.text else "" 
+                    parameters[param_name] = param_element.text.strip() if param_element.text else ""
                 else:
                     print_debug(f"Warning: <parameter> tag missing 'name' attribute in tool '{tool_name}'. Skipping parameter. XML: {ET.tostring(param_element, encoding='unicode')}")
-            
+
             tool_calls.append({
                 "tool_name": tool_name,
                 "parameters": parameters,
                 "call_id": final_call_id,
                 "raw_xml_invoke": ET.tostring(invoke_element, encoding='unicode') # XML for this specific invoke
             })
-        
+
         print_debug(f"Successfully parsed {len(tool_calls)} tool call(s) from XML.")
         return tool_calls
 
@@ -294,7 +294,7 @@ def main():
                 call_id_from_cs_attr = payload.get("call_id") # This is the call_id extracted from DOM attribute by content_script
 
                 print_debug(f"Processing TOOL_CALL_DETECTED. XML: {raw_xml_from_cs[:200]}... CS CallID Attr: {call_id_from_cs_attr}")
-                
+
                 parsed_tool_calls = parse_tool_call_xml(raw_xml_from_cs, call_id_from_cs_attr)
 
                 if not parsed_tool_calls:
@@ -343,7 +343,7 @@ def main():
                                  }
                              })
                         continue
-                    
+
                     print_debug(f"Parsed Tool Call: Name='{tool_name}', Call_ID='{parsed_call_id}', Params='{parameters}'")
 
                     # Duplicate Check using the call_id from Python parsing
@@ -365,7 +365,7 @@ def main():
 
                     # MCP Client Interaction (Phase 1)
                     print_debug(f"Phase 1: Processing tool call for '{tool_name}' (ID: {parsed_call_id})")
-                    
+
                     found_tool_in_discovery = False
                     if DISCOVERED_TOOLS:
                         for discovered_tool in DISCOVERED_TOOLS:
@@ -375,8 +375,8 @@ def main():
                                 print_debug(f"Phase 1: Tool '{tool_name}' is listed by discovered server '{mcp_server_id}'. Intending to call with params: {parameters}")
                                 # Optional: Actual call for testing if server_id matches a test server.
                                 # For now, primarily logging.
-                                break 
-                    
+                                break
+
                     if not found_tool_in_discovery:
                         print_debug(f"Phase 1: Warning - Tool '{tool_name}' (ID: {parsed_call_id}) not found in DISCOVERED_TOOLS list.")
                         # Still send a response to extension, but indicate tool not found status

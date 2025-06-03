@@ -69,40 +69,58 @@ function setupUI() {
       }
       console.log("Gemini MCP Client: Injected dummy prompt:", dummyMessage);
 
-      // Refined send button selection logic
+      console.log("Gemini MCP Client: Injected dummy prompt:", dummyMessage);
+
+      // Refined send button selection logic, prioritizing user-provided selector
       let sendButton = null;
-      const sendButtonSelectors = [
-        'button[data-testid="send-button"]', // Often used for testing, can be stable
-        'button[aria-label*="Send" i]',    // Case-insensitive aria-label containing "Send"
-        'button[aria-label*="Submit" i]',  // Case-insensitive aria-label containing "Submit"
-        // The following selector attempts to find a button that is likely the send button
-        // by looking for common SVG paths associated with send icons (paper airplane).
-        // This is highly dependent on the SVG structure used by Gemini.
-        // Example: 'button:has(svg path[d*="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"])', // Material Design paper airplane
-        // For now, keeping it simpler as complex SVG path selectors can be brittle.
-        'button:has(svg[class*="send-icon"])', // Original attempt, class might vary
-        'button.send-button' // A generic class that might be used
+      const primarySelector = 'button.send-button.submit[aria-label="Send message"]';
+      const fallbackSelectors = [
+        'button[data-testid="send-button"]',
+        'button[aria-label*="Send" i]',    // Case-insensitive, partial match for "Send"
+        'button[aria-label*="Submit" i]',  // Case-insensitive, partial match for "Submit"
+        'button:has(svg[class*="send-icon"])',
+        'button.send-button'
       ];
 
-      for (const selector of sendButtonSelectors) {
-        const button = document.querySelector(selector);
-        if (button && !button.disabled && button.offsetParent !== null) { // Check if visible and not disabled
-          sendButton = button;
-          console.log("Gemini MCP Client: Found potential send button with selector:", selector, sendButton);
-          break;
+      const attemptClick = (button, selectorUsed) => {
+        if (button && button.offsetParent !== null) { // Check if visible
+          if (!button.disabled) {
+            console.log(`Gemini MCP Client: Found send button with selector: "${selectorUsed}". Attempting to click.`, button);
+            button.click();
+            console.log("Gemini MCP Client: Clicked send button for dummy prompt.");
+            return true; // Click successful
+          } else {
+            console.warn(`Gemini MCP Client: Send button found with selector: "${selectorUsed}", but it is disabled.`, button);
+            return false; // Found but disabled
+          }
+        }
+        return false; // Not found or not visible
+      };
+
+      // Try primary selector first
+      const primaryButton = document.querySelector(primarySelector);
+      if (attemptClick(primaryButton, primarySelector)) {
+        sendButton = primaryButton; // Mark as found
+      } else {
+        if (primaryButton) { // Found by primary selector but was not clickable (disabled or invisible)
+             console.warn(`Gemini MCP Client: Primary selector "${primarySelector}" found a button, but it was not clickable (disabled or invisible). Trying fallbacks.`);
+        } else {
+            console.log(`Gemini MCP Client: Primary selector "${primarySelector}" did not find the send button. Trying fallbacks.`);
+        }
+        // Try fallback selectors
+        for (const selector of fallbackSelectors) {
+          const fallbackButton = document.querySelector(selector);
+          if (attemptClick(fallbackButton, selector)) {
+            sendButton = fallbackButton; // Mark as found
+            break; // Exit loop once a button is successfully clicked
+          } else if (fallbackButton) { // Found but not clickable
+              console.warn(`Gemini MCP Client: Fallback selector "${selector}" found a button, but it was not clickable (disabled or invisible).`);
+          }
         }
       }
-      
-      if (sendButton) {
-        console.log("Gemini MCP Client: Attempting to click send button:", sendButton);
-        if (!sendButton.disabled) {
-            sendButton.click();
-            console.log("Gemini MCP Client: Clicked send button for dummy prompt.");
-        } else {
-            console.warn("Gemini MCP Client: Send button found but is disabled. Cannot send dummy prompt automatically.");
-        }
-      } else {
-        console.warn("Gemini MCP Client: Send button not found or not clickable. Dummy prompt injected but not submitted.");
+
+      if (!sendButton) {
+        console.warn("Gemini MCP Client: No clickable send button found after trying all selectors. Dummy prompt injected but not submitted.");
       }
     } else {
       console.error("Gemini MCP Client: Chat input field not found for dummy prompt.");
@@ -196,116 +214,91 @@ function handleNativeHostResponse(message) {
 browser.runtime.onMessage.addListener(handleNativeHostResponse);
 
 function detectToolCallInMutation(mutation) {
-  mutation.addedNodes.forEach(addedNode => {
-    if (addedNode.nodeType !== Node.ELEMENT_NODE) return;
+    mutation.addedNodes.forEach(addedNode => {
+        if (addedNode.nodeType !== Node.ELEMENT_NODE) return;
 
-    let potentialToolCallText = "";
-    let callId = null;
-    let
-      isInvokeCall = false;
-    let elementToMark = null; // The DOM element that might be marked as processed
+        // Find all <code-block> elements to search within.
+        // This includes <code-block>s that are children of <response-element>s,
+        // or <code-block>s that might be added directly or within other containers.
+        let codeBlocksToSearch = [];
 
-    // Case 1: Added node is <function_calls>
-    if (addedNode.matches('function_calls')) {
-      console.log("Gemini MCP Client: Detected <function_calls> element directly added.");
-      potentialToolCallText = addedNode.outerHTML;
-      elementToMark = addedNode; // Mark the <function_calls> element itself or its first <invoke> child
-      // Try to find an invoke child to get call_id and potentially mark it
-      const invokeChild = addedNode.querySelector('invoke');
-      if (invokeChild) {
-        callId = invokeChild.getAttribute('call_id');
-        elementToMark = invokeChild; // Prefer marking the <invoke> element
-      }
-    }
-    // Case 2: Added node is <invoke>
-    else if (addedNode.matches('invoke')) {
-      console.log("Gemini MCP Client: Detected <invoke> element directly added.");
-      potentialToolCallText = addedNode.outerHTML;
-      callId = addedNode.getAttribute('call_id');
-      isInvokeCall = true;
-      elementToMark = addedNode;
-    }
-    // Case 3: Added node contains <function_calls>
-    else if (typeof addedNode.querySelector === 'function' && addedNode.querySelector('function_calls')) {
-      console.log("Gemini MCP Client: Detected <function_calls> element within added node.");
-      const fcElement = addedNode.querySelector('function_calls');
-      potentialToolCallText = fcElement.outerHTML;
-      elementToMark = fcElement; // Mark the <function_calls> element
-      const invokeChild = fcElement.querySelector('invoke');
-      if (invokeChild) {
-        callId = invokeChild.getAttribute('call_id');
-        elementToMark = invokeChild; // Prefer marking the <invoke> element
-      }
-    }
-    // Case 4: Added node contains <invoke> (but not inside function_calls, e.g. if function_calls is higher up)
-    else if (typeof addedNode.querySelectorAll === 'function') {
-        const invokes = addedNode.querySelectorAll('invoke');
-        if (invokes.length > 0) {
-            // Process the first one for now. Robust handling of multiple independent invokes
-            // without a common function_calls parent in the same mutation needs careful consideration.
-            console.log("Gemini MCP Client: Detected <invoke> element(s) within added node.");
-            const firstInvoke = invokes[0];
-            potentialToolCallText = firstInvoke.outerHTML;
-            callId = firstInvoke.getAttribute('call_id');
-            isInvokeCall = true;
-            elementToMark = firstInvoke;
+        // Scenario 1: The addedNode itself is a <response-element> or contains them.
+        let responseElements = [];
+        if (addedNode.matches && addedNode.matches('response-element')) {
+            responseElements.push(addedNode);
+        } else if (addedNode.querySelectorAll) {
+            // Query for response-element children if addedNode is a container
+            responseElements.push(...Array.from(addedNode.querySelectorAll('response-element')));
+        }
 
-            // If multiple invokes are added in the same blob without a parent <function_calls>
-            // this simplified logic will only catch the first. This might be an edge case.
-            if (invokes.length > 1) {
-                console.warn("Gemini MCP Client: Multiple <invoke> elements found in added node without a <function_calls> parent. Processing only the first.");
+        responseElements.forEach(responseElem => {
+            if (responseElem.querySelectorAll) {
+                 codeBlocksToSearch.push(...Array.from(responseElem.querySelectorAll('code-block')));
             }
+        });
+
+        // Scenario 2: The addedNode itself is a <code-block> or contains them (not nested in a response-element found above).
+        // This handles cases where <code-block> might be added outside a <response-element>,
+        // or if <response-element> was already in DOM and <code-block> is added to it.
+        if (addedNode.matches && addedNode.matches('code-block')) {
+            codeBlocksToSearch.push(addedNode);
+        } else if (addedNode.querySelectorAll) {
+            // Query for code-block children if addedNode is a container and not a response-element itself
+            // (or if response-elements were already handled and we want other code-blocks)
+            codeBlocksToSearch.push(...Array.from(addedNode.querySelectorAll('code-block')));
         }
-    }
 
+        // Deduplicate codeBlocksToSearch as the same code-block could be found through multiple paths
+        // (e.g. addedNode is response-element, and it also contains a code-block directly).
+        // Using a Set is an efficient way to get unique elements.
+        const uniqueCodeBlocks = Array.from(new Set(codeBlocksToSearch));
 
-    if (potentialToolCallText) {
-      // If it's an invoke call and not already wrapped, wrap it.
-      if (isInvokeCall && !potentialToolCallText.includes('<function_calls>')) {
-        potentialToolCallText = `<function_calls>${potentialToolCallText}</function_calls>`;
-        console.log("Gemini MCP Client: Wrapped <invoke> with <function_calls>.");
-      }
+        uniqueCodeBlocks.forEach(codeBlock => {
+            // Check if this code-block has already been processed
+            if (codeBlock.dataset.mcpProcessed === 'true') {
+                // console.log("Gemini MCP Client: Skipping already processed <code-block>:", codeBlock);
+                return; // Use return to skip this iteration of forEach
+            }
 
-      // DOM Marking Logic (Simplified)
-      if (elementToMark && callId) {
-        if (elementToMark.getAttribute('data-mcp-processed') === 'true' && elementToMark.getAttribute('data-mcp-call-id') === callId) {
-          console.log("Gemini MCP Client: Skipping already processed element with call_id:", callId);
-          return; // Already processed and sent
-        }
-      } else if (elementToMark && elementToMark.matches('function_calls') && !callId) {
-        // If we have a function_calls element but couldn't find a call_id from a child invoke,
-        // check if it has been marked processed by text content (less ideal).
-        if (elementToMark.getAttribute('data-mcp-processed') === 'true') {
-             console.log("Gemini MCP Client: Skipping already processed <function_calls> element (no call_id found for specific marking).");
-             return;
-        }
-      }
+            // Find the <code> element, typically inside <pre>
+            const codeElement = codeBlock.querySelector('pre > code, code'); // Handles if pre is there or not
 
+            if (codeElement) {
+                // Prefer textContent for cleaner XML, fallback to innerHTML if textContent is empty/null
+                let potentialToolCallText = (codeElement.textContent || codeElement.innerHTML || "").trim();
 
-      console.log("Gemini MCP Client: Extracted raw XML:", potentialToolCallText, "Call ID from DOM:", callId);
+                if (potentialToolCallText.includes('<function_calls>') || potentialToolCallText.includes('<invoke>')) {
+                    console.log("Gemini MCP Client: Found potential tool call XML in <code> element:", potentialToolCallText.substring(0, 200) + "...");
 
-      sendToolCallToBackground({
-        raw_xml: potentialToolCallText,
-        call_id: callId || null
-      });
+                    // Ensure it's wrapped if it's a single invoke (Python also does this, but good for consistency)
+                    if (potentialToolCallText.startsWith('<invoke') && !potentialToolCallText.includes('<function_calls>')) {
+                        potentialToolCallText = `<function_calls>${potentialToolCallText}</function_calls>`;
+                        console.log("Gemini MCP Client: Wrapped single <invoke> with <function_calls>.");
+                    }
 
-      // Mark as processed if we have an element and a call_id from its attribute
-      if (elementToMark && callId) {
-        elementToMark.setAttribute('data-mcp-processed', 'true');
-        elementToMark.setAttribute('data-mcp-call-id', callId);
-        console.log("Gemini MCP Client: Marked element as processed with call_id:", callId, elementToMark);
-      } else if (elementToMark && elementToMark.matches('function_calls>') && !callId) {
-        // If it's a function_calls element and we didn't get a call_id (e.g. no invoke child or invoke missing id),
-        // we can still mark the function_calls element itself to prevent re-processing its whole outerHTML text.
-        elementToMark.setAttribute('data-mcp-processed', 'true');
-        console.log("Gemini MCP Client: Marked <function_calls> element as processed (no specific call_id).", elementToMark);
-      } else {
-        // If no specific element could be pinpointed for marking (e.g., text-based detection - though less emphasized now)
-        // or if call_id was not available from DOM attribute. Python side will do more robust duplicate check.
-        console.log("Gemini MCP Client: Tool call sent. No specific DOM element marked as call_id was not available or elementToMark is null.");
-      }
-    }
-  });
+                    // call_id from DOM attributes is unlikely here as we are getting content from <code>.
+                    // The actual <invoke> tag with a call_id attribute is part of the string, not a DOM element attribute here.
+                    // Python will parse the call_id from the raw_xml string.
+                    const callIdFromDomAttribute = null;
+
+                    sendToolCallToBackground({
+                        raw_xml: potentialToolCallText,
+                        call_id: callIdFromDomAttribute // Python will extract the true call_id from raw_xml
+                    });
+
+                    // Mark the code-block as processed to avoid reprocessing its static content.
+                    // This is important if mutations occur around this block but its content is unchanged.
+                    codeBlock.dataset.mcpProcessed = 'true';
+                    console.log("Gemini MCP Client: Marked <code-block> as processed.", codeBlock);
+
+                } else {
+                    // console.log("Gemini MCP Client: No tool call signature found in <code> content:", codeElement.textContent.substring(0,100));
+                }
+            } else {
+                // console.log("Gemini MCP Client: No <code> element found within <code-block>:", codeBlock);
+            }
+        });
+    });
 }
 
 function observerCallback(mutationsList, _observer) {
