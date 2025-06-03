@@ -155,16 +155,15 @@ async function injectAndSendMessage(textToInject, isToolResult = false) {
 
 // Function to send tool call to background script
 function sendToolCallToBackground(toolCallData) {
-  // This function is currently not called during BAREBONES-DETECT phase
-  console.log("[BAREBONES-DETECT]: (DISABLED) Would send to background:", toolCallData);
-  // browser.runtime.sendMessage({
-  //   type: "TOOL_CALL_DETECTED",
-  //   payload: toolCallData
-  // }).then(response => {
-  //   // console.log("Response from background script:", response);
-  // }).catch(error => {
-  //   console.error("Error sending message to background script:", error);
-  // });
+  console.log("Gemini MCP Client [TOOL-DETECT]: Sending to background:", toolCallData);
+  browser.runtime.sendMessage({ // This line is now active
+    type: "TOOL_CALL_DETECTED",
+    payload: toolCallData
+  }).then(response => {
+    // console.log("Response from background script:", response);
+  }).catch(error => {
+    console.error("Error sending message to background script:", error);
+  });
 }
 
 // Function to handle responses from the background script (coming from native host)
@@ -190,102 +189,96 @@ function handleNativeHostResponse(message) {
 // Listen for messages from the background script
 browser.runtime.onMessage.addListener(handleNativeHostResponse);
 
-// Bare-bones string finder for debugging
-function bareBonesStringFinder(mutationsList, _observer) {
-    if (!isMcpClientEnabled) return;
-
-    const functionCallsString = "function_calls"; // String to search for
-
-    // Recursive helper to check element and its children
-    function checkElementAndChildren(element) {
-        if (!element || typeof element.matches !== 'function') return; // Ensure it's a valid element
-
-        try {
-            if (element.innerHTML && element.innerHTML.includes(functionCallsString)) {
-                console.log(`[BAREBONES-DETECT]: '${functionCallsString}' found in innerHTML of element:`, element.tagName, `Class: ${element.className}`, `ID: ${element.id}`);
-                console.log(`[BAREBONES-DETECT]:   innerHTML (sample):`, element.innerHTML.substring(0, 500) + (element.innerHTML.length > 500 ? "..." : ""));
-            }
-            if (element.textContent && element.textContent.includes(functionCallsString)) {
-                console.log(`[BAREBONES-DETECT]: '${functionCallsString}' found in textContent of element:`, element.tagName, `Class: ${element.className}`, `ID: ${element.id}`);
-                console.log(`[BAREBONES-DETECT]:   textContent (sample):`, element.textContent.substring(0, 500) + (element.textContent.length > 500 ? "..." : ""));
-            }
-        } catch (e) {
-            console.warn(`[BAREBONES-DETECT]: Error accessing innerHTML/textContent for element: ${element.tagName}`, e.message);
-        }
-
-
-        if (element.children) {
-            for (let i = 0; i < element.children.length; i++) {
-                checkElementAndChildren(element.children[i]);
-            }
-        }
+// Helper function to process a found <code> element for tool calls
+function handleFoundCodeElement(codeElement, sourceType) {
+    if (!codeElement || codeElement.dataset.mcpProcessed === 'true') {
+        // console.log(`[TOOL-DETECT]: Skipping already processed <code> element from ${sourceType} or invalid element.`);
+        return;
     }
 
+    console.log(`Gemini MCP Client [TOOL-DETECT]: Candidate <code> element found. Checking content... Class: ${codeElement.className}, ID: ${codeElement.id}, Source: ${sourceType}`);
+    const rawXml = codeElement.textContent ? codeElement.textContent.trim() : "";
+
+    if (rawXml.includes("function_calls")) {
+        console.warn(`Gemini MCP Client [TOOL-DETECT]: !!! function_calls STRING FOUND in textContent !!! Class: ${codeElement.className}, ID: ${codeElement.id}, Source: ${sourceType}`);
+        console.log(`Gemini MCP Client [TOOL-DETECT]: Extracted rawXml (sample): ${rawXml.substring(0, 200)}...`);
+        console.log("[TOOL-DETECT]: Assuming textContent has decoded HTML entities like &lt; if they were present.");
+
+        if (!rawXml.startsWith("<")) {
+            console.warn("Gemini MCP Client [TOOL-DETECT]: Extracted textContent does not start with '<', might not be valid XML for tool call:", rawXml.substring(0,100) + "...");
+        }
+
+        sendToolCallToBackground({ raw_xml: rawXml, call_id: null }); // Re-enabled
+
+        codeElement.dataset.mcpProcessed = 'true'; // Re-enabled
+        console.log(`Gemini MCP Client [TOOL-DETECT]: Marked <code> element as processed. Class: ${codeElement.className}, ID: ${codeElement.id}`);
+    } else {
+        // console.log(`Gemini MCP Client [TOOL-DETECT]: "function_calls" string NOT found in textContent of: Class: ${codeElement.className}, ID: ${codeElement.id}, textContent (sample): ${rawXml.substring(0,100)}...`);
+    }
+}
+
+// Final MutationObserver callback for processing tool calls
+function finalProcessMutations(mutationsList, _observer) {
+    if (!isMcpClientEnabled) return;
+
     mutationsList.forEach(mutation => {
-        console.log("[BAREBONES-DETECT]: Mutation type:", mutation.type);
+        // console.log("Gemini MCP Client [TOOL-DETECT]: Mutation type:", mutation.type); // Keep this commented unless very detailed debugging is needed
 
         if (mutation.type === 'childList') {
             mutation.addedNodes.forEach(addedNode => {
                 if (addedNode.nodeType === Node.ELEMENT_NODE) {
-                    // console.log(`[BAREBONES-DETECT]: Added node: ${addedNode.nodeName}`, "outerHTML (truncated):", addedNode.outerHTML ? addedNode.outerHTML.substring(0, 200) : "N/A");
-                    checkElementAndChildren(addedNode);
-                } else if (addedNode.nodeType === Node.TEXT_NODE) {
-                     if (addedNode.nodeValue && addedNode.nodeValue.includes(functionCallsString)) {
-                        const parentElement = addedNode.parentElement;
-                        console.log(`[BAREBONES-DETECT]: '${functionCallsString}' found in added textNode.nodeValue. Parent:`, parentElement ? `${parentElement.tagName} (Class: ${parentElement.className}, ID: ${parentElement.id})` : 'N/A');
-                        console.log("[BAREBONES-DETECT]:   textNode.nodeValue (sample):", addedNode.nodeValue.substring(0, 500));
-                    }
+                    // Define the processing for an added node (can be a helper)
+                    const processAddedNode = (node) => {
+                        // Check if the node itself is a target <code> element
+                        if (node.matches && (node.matches('code.code-container.formatted') || node.matches('code[class*="code-container"][class*="formatted"]'))) {
+                            // Check if it's within a .model-response-text if that's a required parent
+                             if (node.closest('.model-response-text')) {
+                                handleFoundCodeElement(node, "addedNode directly matching <code> and in .model-response-text");
+                             } else {
+                                // console.log("[TOOL-DETECT]: Found matching <code> but not within .model-response-text:", node);
+                             }
+                        }
+                        // Find all relevant <code> elements within the added node's descendants
+                        const codeElements = node.querySelectorAll('code.code-container.formatted, code[class*="code-container"][class*="formatted"]');
+                        codeElements.forEach(codeEl => {
+                            // Ensure this code element is within a .model-response-text context
+                            if (codeEl.closest('.model-response-text')) {
+                                handleFoundCodeElement(codeEl, "childList querySelectorAll in .model-response-text");
+                            } else {
+                                // console.log("[TOOL-DETECT]: Found matching <code> via querySelectorAll, but not within .model-response-text:", codeEl);
+                            }
+                        });
+                    };
+                    processAddedNode(addedNode);
                 }
             });
-            // Optionally log removedNodes if needed, but addedNodes are primary for new content
-        } else if (mutation.type === 'characterData') {
-            const textNode = mutation.target;
-            const parentElement = textNode.parentElement;
-            // console.log("[BAREBONES-DETECT]: CharacterData change. Target nodeName:", textNode.nodeName);
-
-            if (textNode.nodeValue && textNode.nodeValue.includes(functionCallsString)) {
-                console.log(`[BAREBONES-DETECT]: '${functionCallsString}' found in characterData.nodeValue. Parent:`, parentElement ? `${parentElement.tagName} (Class: ${parentElement.className}, ID: ${parentElement.id})` : 'N/A');
-                console.log("[BAREBONES-DETECT]:   New text value (sample):", textNode.nodeValue.substring(0, 500));
-            }
-            // Also check parent's full content, as characterData change might complete a partial string
-            if (parentElement) {
-                 try {
-                    if (parentElement.innerHTML && parentElement.innerHTML.includes(functionCallsString)) {
-                        console.log(`[BAREBONES-DETECT]: '${functionCallsString}' found in parentElement.innerHTML of characterData change. Parent:`, parentElement.tagName, `Class: ${parentElement.className}`, `ID: ${parentElement.id}`);
-                        console.log(`[BAREBONES-DETECT]:   parentElement.innerHTML (sample):`, parentElement.innerHTML.substring(0, 500) + (parentElement.innerHTML.length > 500 ? "..." : ""));
-                    }
-                    if (parentElement.textContent && parentElement.textContent.includes(functionCallsString)) {
-                        console.log(`[BAREBONES-DETECT]: '${functionCallsString}' found in parentElement.textContent of characterData change. Parent:`, parentElement.tagName, `Class: ${parentElement.className}`, `ID: ${parentElement.id}`);
-                        console.log(`[BAREBONES-DETECT]:   parentElement.textContent (sample):`, parentElement.textContent.substring(0, 500) + (parentElement.textContent.length > 500 ? "..." : ""));
-                    }
-                } catch (e) {
-                    console.warn(`[BAREBONES-DETECT]: Error accessing innerHTML/textContent for parent of characterData change: ${parentElement.tagName}`, e.message);
-                }
-            }
         }
+        // CharacterData handling is removed as per plan focus on childList and subtree for structural additions
+        // else if (mutation.type === 'characterData') {
+        // ...
+        // }
     });
 }
 
-
-const observerCallback = bareBonesStringFinder;
+const observerCallback = finalProcessMutations;
 
 const observerOptions = {
   childList: true,
   subtree: true,
-  characterData: true,
+  characterData: false, // As per plan, focus on structural changes
   attributes: false
 };
 
 // Start and Stop observer functions
 function startObserver() {
   if (!observer) {
-      console.log("Gemini MCP Client [BAREBONES-DETECT]: Creating new MutationObserver with options:", observerOptions);
+      console.log("Gemini MCP Client [TOOL-DETECT]: Creating new MutationObserver with options:", observerOptions);
       observer = new MutationObserver(observerCallback);
   }
   if (targetNode && isMcpClientEnabled) {
     try {
         observer.observe(targetNode, observerOptions);
-        console.log("Gemini MCP Client [BAREBONES-DETECT]: MutationObserver started/restarted. Target:", targetNode, "Options:", observerOptions);
+        console.log("Gemini MCP Client [TOOL-DETECT]: MutationObserver started/restarted. Target:", targetNode, "Options:", observerOptions);
     } catch (e) {
         console.error("Gemini MCP Client [ERROR]: Error starting MutationObserver:", e);
         initializeTargetNodeAndObserver(true);
@@ -299,14 +292,14 @@ function startObserver() {
 function stopObserver() {
   if (observer) {
     observer.disconnect();
-    console.log("Gemini MCP Client [BAREBONES-DETECT]: MutationObserver stopped.");
+    console.log("Gemini MCP Client [TOOL-DETECT]: MutationObserver stopped.");
   }
 }
 
 // Function to initialize targetNode and start observer
 function initializeTargetNodeAndObserver(forceStart = false) {
     const userSpecifiedSelector = '#chat-history';
-    console.log(`Gemini MCP Client [BAREBONES-DETECT]: Attempting to set observer targetNode to user-specified selector: '${userSpecifiedSelector}'.`);
+    console.log(`Gemini MCP Client [TOOL-DETECT]: Attempting to set observer targetNode to user-specified selector: '${userSpecifiedSelector}'.`);
     let specificTarget = document.getElementById('chat-history');
     if (!specificTarget) {
         specificTarget = document.querySelector(userSpecifiedSelector);
@@ -314,9 +307,9 @@ function initializeTargetNodeAndObserver(forceStart = false) {
 
     if (specificTarget) {
         targetNode = specificTarget;
-        console.log(`Gemini MCP Client [BAREBONES-DETECT]: Observer targetNode set to ${userSpecifiedSelector} (user identified).`);
+        console.log(`Gemini MCP Client [TOOL-DETECT]: Observer targetNode set to ${userSpecifiedSelector} (user identified).`);
     } else {
-        console.warn(`Gemini MCP Client [BAREBONES-DETECT]: ${userSpecifiedSelector} (user identified) NOT FOUND. Falling back to document.body.`);
+        console.warn(`Gemini MCP Client [TOOL-DETECT]: ${userSpecifiedSelector} (user identified) NOT FOUND. Falling back to document.body.`);
         targetNode = document.body;
     }
 
