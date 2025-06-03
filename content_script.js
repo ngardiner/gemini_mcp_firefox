@@ -155,9 +155,7 @@ async function injectAndSendMessage(textToInject, isToolResult = false) {
 
 // Function to send tool call to background script
 function sendToolCallToBackground(toolCallData) {
-  // Using [TOOL-DEBUG-VERBOSE] for this phase, but this function is general.
-  // For now, aligning with the current debug phase's prefix.
-  console.log("[TOOL-DEBUG-VERBOSE]: Sending to background:", toolCallData);
+  console.log("Gemini MCP Client [TOOL-DETECT]: Sending to background:", toolCallData);
   browser.runtime.sendMessage({
     type: "TOOL_CALL_DETECTED",
     payload: toolCallData
@@ -191,91 +189,94 @@ function handleNativeHostResponse(message) {
 // Listen for messages from the background script
 browser.runtime.onMessage.addListener(handleNativeHostResponse);
 
-// Helper function to process a found <code> element for tool calls (currently disabled for verbose logging)
-/*
+// Helper function to process a found <code> element for tool calls
 function handlePotentialToolCallElement(codeElement, sourceType) {
     if (!codeElement || codeElement.dataset.mcpProcessed === 'true') {
+        // console.log(`[TOOL-DETECT]: Skipping already processed <code> element from ${sourceType} or invalid element.`);
         return;
     }
 
-    console.log(`Gemini MCP Client [TOOL-DETECT]: Found candidate <code> element (from ${sourceType}). outerHTML:`, codeElement.outerHTML.substring(0, 300) + "...");
+    console.log(`Gemini MCP Client [TOOL-DETECT]: Found candidate <code> element (from ${sourceType}). outerHTML (truncated):`, codeElement.outerHTML ? codeElement.outerHTML.substring(0, 300) + "..." : "N/A");
     const rawXml = codeElement.textContent ? codeElement.textContent.trim() : "";
-    console.log("[TOOL-DETECT]: Extracted textContent:", rawXml.substring(0, 300) + "...");
+    console.log("Gemini MCP Client [TOOL-DETECT]: Extracted textContent (truncated):", rawXml.substring(0, 300) + "...");
 
     if (rawXml.includes("function_calls")) {
         console.warn(`Gemini MCP Client [TOOL-DETECT]: !!! function_calls STRING FOUND in textContent !!! Source: ${sourceType}`);
 
         if (!rawXml.startsWith("<")) {
-            console.warn("[TOOL-DETECT]: Extracted textContent does not start with '<', might not be valid XML for tool call:", rawXml.substring(0,100) + "...");
+            console.warn("Gemini MCP Client [TOOL-DETECT]: Extracted textContent does not start with '<', might not be valid XML for tool call:", rawXml.substring(0,100) + "...");
         }
 
-        sendToolCallToBackground({ raw_xml: rawXml, call_id: null });
+        sendToolCallToBackground({ raw_xml: rawXml, call_id: null }); // Re-enabled
 
-        codeElement.dataset.mcpProcessed = 'true';
-        console.log("[TOOL-DETECT]: Marked <code> element as processed.");
+        codeElement.dataset.mcpProcessed = 'true'; // Re-enabled
+        console.log("Gemini MCP Client [TOOL-DETECT]: Marked <code> element as processed.");
     }
 }
-*/
 
-// Main MutationObserver callback for VERBOSE tool call detection debugging
-function verboseMutationLogger(mutationsList, _observer) {
+// Main MutationObserver callback for processing tool calls
+function processMutationsForToolCalls(mutationsList, _observer) {
     if (!isMcpClientEnabled) return;
 
     mutationsList.forEach(mutation => {
-        console.log("[TOOL-DEBUG-VERBOSE]: Mutation type:", mutation.type);
+        // console.log("Gemini MCP Client [TOOL-DETECT]: Mutation type:", mutation.type); // Can be noisy, enable if needed
 
         if (mutation.type === 'childList') {
-            mutation.addedNodes.forEach((node, index) => {
-                if (node.nodeType === Node.ELEMENT_NODE) {
-                    console.log(`[TOOL-DEBUG-VERBOSE]: Added node [${index}]: ${node.nodeName}`, "outerHTML (truncated):", node.outerHTML ? node.outerHTML.substring(0, 500) : "N/A");
-                } else {
-                    console.log(`[TOOL-DEBUG-VERBOSE]: Added node [${index}]: ${node.nodeName}`, "nodeValue (truncated):", node.nodeValue ? node.nodeValue.substring(0, 200) : "N/A");
-                }
-            });
-            mutation.removedNodes.forEach((node, index) => {
-                 if (node.nodeType === Node.ELEMENT_NODE) {
-                    console.log(`[TOOL-DEBUG-VERBOSE]: Removed node [${index}]: ${node.nodeName}`, "outerHTML (truncated):", node.outerHTML ? node.outerHTML.substring(0, 500) : "N/A");
-                } else {
-                    console.log(`[TOOL-DEBUG-VERBOSE]: Removed node [${index}]: ${node.nodeName}`, "nodeValue (truncated):", node.nodeValue ? node.nodeValue.substring(0, 200) : "N/A");
+            mutation.addedNodes.forEach(addedNode => {
+                if (addedNode.nodeType === Node.ELEMENT_NODE) {
+                    let modelResponseElements = [];
+                    if (addedNode.matches && addedNode.matches('.model-response-text')) {
+                        modelResponseElements.push(addedNode);
+                    }
+                    // Also query descendants, in case model-response-text is nested within addedNode
+                    // This is important if the entire response block is added at once.
+                    if (addedNode.querySelectorAll) { // Check if querySelectorAll is available
+                        modelResponseElements.push(...Array.from(addedNode.querySelectorAll('.model-response-text')));
+                    }
+
+                    modelResponseElements = Array.from(new Set(modelResponseElements));
+
+                    modelResponseElements.forEach(modelResponseElement => {
+                        // console.log("Gemini MCP Client [TOOL-DETECT]: Processing .model-response-text element:", modelResponseElement);
+                        const codeElement = modelResponseElement.querySelector('code.code-container.formatted, code[class*="code-container"][class*="formatted"]');
+                        if (codeElement) {
+                            handlePotentialToolCallElement(codeElement, "childList in .model-response-text");
+                        }
+                    });
                 }
             });
         } else if (mutation.type === 'characterData') {
-            console.log("[TOOL-DEBUG-VERBOSE]: CharacterData change. Target nodeName:", mutation.target.nodeName);
-            if (mutation.target.parentElement) {
-                console.log("[TOOL-DEBUG-VERBOSE]:   Parent of text node outerHTML (truncated):", mutation.target.parentElement.outerHTML ? mutation.target.parentElement.outerHTML.substring(0, 500) : "N/A");
-            } else {
-                console.log("[TOOL-DEBUG-VERBOSE]:   Parent of text node: N/A");
+            const target = mutation.target;
+            if (target && target.parentElement) {
+                 const codeElement = target.parentElement.closest('code.code-container.formatted, code[class*="code-container"][class*="formatted"]');
+                 if (codeElement && codeElement.closest('.model-response-text')) {
+                    // console.log("Gemini MCP Client [TOOL-DETECT]: characterData mutation potentially relevant for:", codeElement);
+                    handlePotentialToolCallElement(codeElement, "characterData");
+                 }
             }
-            console.log("[TOOL-DEBUG-VERBOSE]:   New text value (sample):", mutation.target.nodeValue ? mutation.target.nodeValue.substring(0, 200) : "N/A");
         }
-        // Attributes logging can be added here if observerOptions.attributes is true
-        // else if (mutation.type === 'attributes') {
-        //     console.log(`[TOOL-DEBUG-VERBOSE]: Attribute mutation: ${mutation.attributeName} on ${mutation.target.nodeName}. Target outerHTML:`, mutation.target.outerHTML ? mutation.target.outerHTML.substring(0,500) : "N/A");
-        // }
     });
-    // Specific logic for .model-response-text and code.code-container.formatted is TEMPORARILY DISABLED
-    // by commenting out the call to handlePotentialToolCallElement or similar processing.
 }
 
-const observerCallback = verboseMutationLogger;
+const observerCallback = processMutationsForToolCalls;
 
 const observerOptions = {
   childList: true,
   subtree: true,
   characterData: true,
-  attributes: false // As per plan, keep false to reduce noise for this phase
+  attributes: false
 };
 
 // Start and Stop observer functions
 function startObserver() {
   if (!observer) {
-      console.log("Gemini MCP Client [TOOL-DEBUG-VERBOSE]: Creating new MutationObserver with options:", observerOptions);
+      console.log("Gemini MCP Client [TOOL-DETECT]: Creating new MutationObserver with options:", observerOptions);
       observer = new MutationObserver(observerCallback);
   }
   if (targetNode && isMcpClientEnabled) {
     try {
         observer.observe(targetNode, observerOptions);
-        console.log("Gemini MCP Client [TOOL-DEBUG-VERBOSE]: MutationObserver started/restarted. Target:", targetNode, "Options:", observerOptions);
+        console.log("Gemini MCP Client [TOOL-DETECT]: MutationObserver started/restarted. Target:", targetNode, "Options:", observerOptions);
     } catch (e) {
         console.error("Gemini MCP Client [ERROR]: Error starting MutationObserver:", e);
         initializeTargetNodeAndObserver(true);
@@ -289,24 +290,28 @@ function startObserver() {
 function stopObserver() {
   if (observer) {
     observer.disconnect();
-    console.log("Gemini MCP Client [TOOL-DEBUG-VERBOSE]: MutationObserver stopped.");
+    console.log("Gemini MCP Client [TOOL-DETECT]: MutationObserver stopped.");
   }
 }
 
 // Function to initialize targetNode and start observer
 function initializeTargetNodeAndObserver(forceStart = false) {
-    const specificTargetSelector = '.chat-history';
-    // Ensure logs use the current debugging prefix
-    console.log(`Gemini MCP Client [TOOL-DEBUG-VERBOSE]: Attempting to set observer targetNode to '${specificTargetSelector}'.`);
-    const specificTarget = document.querySelector(specificTargetSelector);
+    const userSpecifiedSelector = '#chat-history';
+    console.log(`Gemini MCP Client [TOOL-DETECT]: Attempting to set observer targetNode to user-specified selector: '${userSpecifiedSelector}'.`);
+    let specificTarget = document.getElementById('chat-history');
+    if (!specificTarget) {
+        // console.log(`Gemini MCP Client [TOOL-DETECT]: getElementById for '${userSpecifiedSelector}' failed, trying querySelector.`); // Optional additional debug
+        specificTarget = document.querySelector(userSpecifiedSelector);
+    }
+
     if (specificTarget) {
         targetNode = specificTarget;
-        console.log(`Gemini MCP Client [TOOL-DEBUG-VERBOSE]: Observer targetNode set to '${specificTargetSelector}'.`);
+        console.log(`Gemini MCP Client [TOOL-DETECT]: Observer targetNode set to ${userSpecifiedSelector} (user identified).`);
     } else {
-        console.warn(`Gemini MCP Client [TOOL-DEBUG-VERBOSE]: '${specificTargetSelector}' not found. Falling back to document.body for observer targetNode.`);
+        console.warn(`Gemini MCP Client [TOOL-DETECT]: ${userSpecifiedSelector} (user identified) NOT FOUND. Falling back to document.body.`);
         targetNode = document.body;
     }
-    // console.log("Gemini MCP Client [TOOL-DEBUG-VERBOSE]: Final targetNode for MutationObserver:", targetNode); // Slightly redundant
+    // console.log("Gemini MCP Client [TOOL-DETECT]: Final targetNode for MutationObserver:", targetNode); // Redundant
 
 
     if (targetNode) {
@@ -314,7 +319,6 @@ function initializeTargetNodeAndObserver(forceStart = false) {
             startObserver();
         }
     } else {
-        // This case should ideally not be reached if document.body is the ultimate fallback
         console.error("Gemini MCP Client [ERROR]: Target node for MutationObserver could not be set (even to document.body).");
      }
  }
