@@ -253,77 +253,86 @@ function handleNativeHostResponse(message) {
 // Listen for messages from the background script
 browser.runtime.onMessage.addListener(handleNativeHostResponse);
 
-// Broad debug logging for tool call detection
-function debugDetectToolCallInMutation(mutationsList, _observer) {
+// Listen for messages from the background script
+browser.runtime.onMessage.addListener(handleNativeHostResponse);
+
+// Targeted Light DOM Debugging for <code class="code-container formatted">
+function debugLightDOMCodeElements(mutationsList, _observer) {
     if (!isMcpClientEnabled) return;
 
     mutationsList.forEach(mutation => {
-        console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]: Mutation type:", mutation.type);
-        if (mutation.target && mutation.target.outerHTML) {
-            console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   Target outerHTML (truncated):", mutation.target.outerHTML.substring(0, 500));
-        } else if (mutation.target) {
-            console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   Target nodeName:", mutation.target.nodeName);
-        }
-
-        const checkAndLog = (node, nodeTypeDescription) => {
-            if (node && node.nodeType === Node.ELEMENT_NODE && node.outerHTML) {
-                if (node.outerHTML.includes("function_calls") || node.outerHTML.includes("<function_calls>")) {
-                    console.log(`Gemini MCP Client [DEBUG-TOOL-DETECT]:   'function_calls' string found in ${nodeTypeDescription}. outerHTML:`, node.outerHTML);
-                    if(node.parentElement) console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:     Parent of node:", node.parentElement.tagName, "Classes:", node.parentElement.className);
-                    if(node.parentElement && node.parentElement.parentElement) console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:     Grandparent of node:", node.parentElement.parentElement.tagName, "Classes:", node.parentElement.parentElement.className);
-                }
-            } else if (node && node.nodeType === Node.TEXT_NODE && node.nodeValue) {
-                 if (node.nodeValue.includes("function_calls") || node.nodeValue.includes("<function_calls>")) {
-                    console.log(`Gemini MCP Client [DEBUG-TOOL-DETECT]:   'function_calls' string found in ${nodeTypeDescription} (TextNode). Value:`, node.nodeValue);
-                    if(node.parentElement) console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:     Parent of text node:", node.parentElement.outerHTML.substring(0,500));
-                 }
-            }
-        };
+        console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]: Mutation type:", mutation.type);
 
         if (mutation.type === 'childList') {
-            mutation.addedNodes.forEach(addedNode => checkAndLog(addedNode, "addedNode"));
-            mutation.removedNodes.forEach(removedNode => checkAndLog(removedNode, "removedNode"));
-        } else if (mutation.type === 'attributes') {
-            const attrValue = mutation.target.getAttribute(mutation.attributeName);
-            if (attrValue && (attrValue.includes("function_calls") || attrValue.includes("<function_calls>"))) {
-                console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   'function_calls' string found in attribute mutation. Attribute:", mutation.attributeName, "New value (approx):", attrValue);
-                console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   Target element outerHTML:", mutation.target.outerHTML);
-            } else if (mutation.target.outerHTML && (mutation.target.outerHTML.includes("function_calls") || mutation.target.outerHTML.includes("<function_calls>"))) {
-                // Check outerHTML as well, as some attribute changes might reflect there more directly
-                // and the string might not be in the attribute value itself.
-                 console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   'function_calls' string found in target's outerHTML after attribute mutation. Attribute:", mutation.attributeName);
-                 console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   Target element outerHTML:", mutation.target.outerHTML);
-            }
+            mutation.addedNodes.forEach(addedNode => {
+                if (addedNode.nodeType === Node.ELEMENT_NODE) {
+                    // Check if the addedNode itself is the target element
+                    if (addedNode.matches && addedNode.matches('code.code-container.formatted')) {
+                        const codeElement = addedNode;
+                        console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]: Found candidate <code.code-container.formatted> element (as addedNode):", codeElement.outerHTML.substring(0, 500));
+                        console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]:   Parent:", codeElement.parentElement ? codeElement.parentElement.outerHTML.substring(0, 200) : 'N/A');
+                        console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]:   Grandparent:", codeElement.parentElement && codeElement.parentElement.parentElement ? codeElement.parentElement.parentElement.outerHTML.substring(0, 200) : 'N/A');
+                        if (codeElement.innerHTML.includes("<function_calls>")) {
+                            console.warn("Gemini MCP Client [DEBUG-LIGHT-DOM]: !!! <function_calls> FOUND in innerHTML of <code.code-container.formatted> (as addedNode) !!!");
+                            console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]: Full innerHTML:", codeElement.innerHTML);
+                        }
+                    }
+                    // Check descendants of addedNode
+                    const codeElements = addedNode.querySelectorAll('code.code-container.formatted');
+                    codeElements.forEach(codeElement => {
+                        console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]: Found candidate <code.code-container.formatted> element (from addedNode querySelectorAll):", codeElement.outerHTML.substring(0, 500));
+                        console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]:   Parent:", codeElement.parentElement ? codeElement.parentElement.outerHTML.substring(0, 200) : 'N/A');
+                        console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]:   Grandparent:", codeElement.parentElement && codeElement.parentElement.parentElement ? codeElement.parentElement.parentElement.outerHTML.substring(0, 200) : 'N/A');
+                        if (codeElement.innerHTML.includes("<function_calls>")) {
+                            console.warn("Gemini MCP Client [DEBUG-LIGHT-DOM]: !!! <function_calls> FOUND in innerHTML of <code.code-container.formatted> (from addedNode querySelectorAll) !!!");
+                            console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]: Full innerHTML:", codeElement.innerHTML);
+                        }
+                    });
+                }
+            });
         } else if (mutation.type === 'characterData') {
-            if (mutation.target.nodeValue && (mutation.target.nodeValue.includes("function_calls") || mutation.target.nodeValue.includes("<function_calls>"))) {
-                console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   'function_calls' string found in characterData mutation. New value:", mutation.target.nodeValue);
-                console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   Parent of text node:", mutation.target.parentElement ? mutation.target.parentElement.outerHTML.substring(0,500) : "N/A");
+            const targetElement = mutation.target.parentElement;
+            if (targetElement && targetElement.matches && targetElement.matches('code.code-container.formatted')) {
+                console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]: characterData mutation on target:", targetElement.outerHTML.substring(0, 500));
+                if (mutation.target.nodeValue && mutation.target.nodeValue.includes("<function_calls>")) {
+                    console.warn("Gemini MCP Client [DEBUG-LIGHT-DOM]: !!! <function_calls> FOUND in characterData nodeValue !!!");
+                    console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]: Full nodeValue:", mutation.target.nodeValue);
+                    console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]: innerHTML of parent <code>:", targetElement.innerHTML);
+                }
+            }
+        } else if (mutation.type === 'attributes') {
+            const targetElement = mutation.target;
+            if (targetElement && targetElement.matches && targetElement.matches('code.code-container.formatted')) {
+                console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]: attributes mutation on target:", targetElement.outerHTML.substring(0, 500), ". Attribute changed:", mutation.attributeName);
+                const newAttrValue = targetElement.getAttribute(mutation.attributeName);
+                if ((newAttrValue && newAttrValue.includes("<function_calls>")) || targetElement.innerHTML.includes("<function_calls>")) {
+                    console.warn("Gemini MCP Client [DEBUG-LIGHT-DOM]: !!! <function_calls> FOUND after attribute change on <code> element !!!");
+                    console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]: Attribute value:", newAttrValue);
+                    console.log("Gemini MCP Client [DEBUG-LIGHT-DOM]: Full innerHTML of <code>:", targetElement.innerHTML);
+                }
             }
         }
+        // Temporarily disable Shadow DOM checks or other broad logging to focus
+        /*
+         if (mutation.type === 'childList') {
+            mutation.addedNodes.forEach(addedNode => {
+                if (addedNode.nodeType === Node.ELEMENT_NODE) {
+                    // recursivelyCheckShadowDOM(addedNode); // Shadow DOM logic disabled
+                }
+            });
+        }
+        */
     });
-
-    // Temporarily disable existing specific tool call detection logic
-    /*
-    mutation.addedNodes.forEach(addedNode => {
-        if (addedNode.nodeType !== Node.ELEMENT_NODE) return;
-        // ... (original logic for response-element, code-block, etc.) ...
-        // ... sendToolCallToBackground(...) ...
-    });
-    */
 }
 
-// const originalDetectToolCallInMutation = detectToolCallInMutation; // Keep a reference if needed later
-
-// The observer will now use the broad debug logging function.
-// The original detectToolCallInMutation is effectively disabled for this debugging phase.
-const observerCallback = debugDetectToolCallInMutation;
+// The observer will now use the Light DOM debugging function.
+const observerCallback = debugLightDOMCodeElements;
 
 const observerOptions = {
   childList: true,
   subtree: true,
-  attributes: true, // Watch for attribute changes
-  characterData: true, // Watch for text content changes
-  // characterDataOldValue: true // Optional: to see the old value before change
+  attributes: true,
+  characterData: true
 };
 
 
