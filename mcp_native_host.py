@@ -362,23 +362,31 @@ def main():
                     PROCESSED_CALL_IDS.add(parsed_call_id)
                     print_debug(f"Added call_id '{parsed_call_id}' to processed set. Set size: {len(PROCESSED_CALL_IDS)}")
 
-                    # MCP Client Interaction (Phase 1)
-                    print_debug(f"Phase 1: Processing tool call for '{tool_name}' (ID: {parsed_call_id})")
+                    # --- BEGIN TOOL EXECUTION LOGIC ---
+                    if not FASTMCP_AVAILABLE:
+                        print_debug(f"FASTMCP_AVAILABLE is False. Cannot execute tool '{tool_name}'. Sending error to extension.")
+                        if tab_id:
+                            send_message({
+                                "tabId": tab_id,
+                                "payload": {
+                                    "status": "error_executing_tool",
+                                    "tool_name": tool_name,
+                                    "call_id": parsed_call_id,
+                                    "message": "fastmcp library is not available in the native host. Tool execution is disabled.",
+                                    "text_response": f"<tool_result><call_id>{parsed_call_id}</call_id><tool_name>{tool_name}</tool_name><result>ERROR: fastmcp library not available. Tool execution disabled.</result></tool_result>"
+                                }
+                            })
+                        continue # Skip to next tool call
 
-                    found_tool_in_discovery = False
-                    if DISCOVERED_TOOLS:
-                        for discovered_tool in DISCOVERED_TOOLS:
-                            if discovered_tool.get("tool_name") == tool_name:
-                                found_tool_in_discovery = True
-                                mcp_server_id = discovered_tool.get("mcp_server_id")
-                                print_debug(f"Phase 1: Tool '{tool_name}' is listed by discovered server '{mcp_server_id}'. Intending to call with params: {parameters}")
-                                # Optional: Actual call for testing if server_id matches a test server.
-                                # For now, primarily logging.
-                                break
+                    # 1. Find Tool and Server Configuration
+                    discovered_tool_config = None
+                    for dt in DISCOVERED_TOOLS:
+                        if dt.get("tool_name") == tool_name:
+                            discovered_tool_config = dt
+                            break
 
-                    if not found_tool_in_discovery:
-                        print_debug(f"Phase 1: Warning - Tool '{tool_name}' (ID: {parsed_call_id}) not found in DISCOVERED_TOOLS list.")
-                        # Still send a response to extension, but indicate tool not found status
+                    if not discovered_tool_config:
+                        print_debug(f"Error: Tool '{tool_name}' (ID: {parsed_call_id}) not found in DISCOVERED_TOOLS list after initial check.")
                         if tab_id:
                             send_message({
                                 "tabId": tab_id,
@@ -386,23 +394,131 @@ def main():
                                     "status": "tool_not_found",
                                     "tool_name": tool_name,
                                     "call_id": parsed_call_id,
-                                    "message": f"Python host: Tool '{tool_name}' (ID: {parsed_call_id}) acknowledged, but not found in discovered tools."
+                                    "message": f"Python host: Tool '{tool_name}' (ID: {parsed_call_id}) not found in discovered tools during execution phase.",
+                                    "text_response": f"<tool_result><call_id>{parsed_call_id}</call_id><tool_name>{tool_name}</tool_name><result>ERROR: Tool '{tool_name}' not found.</result></tool_result>"
                                 }
                             })
-                        continue # Skip to next tool call if any
+                        continue
 
-                    # Response to Extension (Phase 1)
-                    response_message_to_ext = {
-                        "status": "processed_by_python", # More specific status
-                        "tool_name": tool_name,
-                        "call_id": parsed_call_id,
-                        "message": f"Phase 1: Tool call for '{tool_name}' (ID: {parsed_call_id}) acknowledged and processed by Python script."
-                    }
-                    if tab_id:
-                        send_message({"tabId": tab_id, "payload": response_message_to_ext})
-                        print_debug(f"Sent Phase 1 acknowledgement to extension for call_id '{parsed_call_id}'")
-                    else:
-                        print_debug(f"Warning: No tabId, cannot send acknowledgement for call_id '{parsed_call_id}'")
+                    mcp_server_id = discovered_tool_config.get("mcp_server_id")
+                    server_config = None
+                    for sc in SERVER_CONFIGURATIONS:
+                        if sc.get("id") == mcp_server_id:
+                            server_config = sc
+                            break
+
+                    if not server_config:
+                        print_debug(f"Error: Server configuration for mcp_server_id '{mcp_server_id}' not found for tool '{tool_name}'.")
+                        if tab_id:
+                            send_message({
+                                "tabId": tab_id,
+                                "payload": {
+                                    "status": "error_executing_tool",
+                                    "tool_name": tool_name,
+                                    "call_id": parsed_call_id,
+                                    "message": f"Python host: Server configuration for '{mcp_server_id}' not found while trying to execute tool '{tool_name}'.",
+                                    "text_response": f"<tool_result><call_id>{parsed_call_id}</call_id><tool_name>{tool_name}</tool_name><result>ERROR: Server configuration for '{mcp_server_id}' not found for tool '{tool_name}'.</result></tool_result>"
+                                }
+                            })
+                        continue
+
+                    # 2. Instantiate MCP Client
+                    client = None
+                    try:
+                        server_type = server_config['type']
+                        if server_type == "streamable-http":
+                            client = fastmcp.client.HttpClient(url=server_config['url'], headers=server_config.get('headers', {}), server_id=mcp_server_id)
+                        elif server_type == "sse":
+                            client = fastmcp.client.SseClient(url=server_config['url'], headers=server_config.get('headers', {}), server_id=mcp_server_id)
+                        elif server_type == "stdio":
+                            client = fastmcp.client.StdioClient(
+                                command=server_config['command'],
+                                args=server_config.get('args', []),
+                                env=server_config.get('env', {}),
+                                server_id=mcp_server_id
+                            )
+                        else:
+                            raise ValueError(f"Unsupported server type: {server_type}")
+                        print_debug(f"Successfully instantiated MCP client for tool '{tool_name}' on server '{mcp_server_id}' of type '{server_type}'.")
+                    except Exception as e_client_init:
+                        print_debug(f"Error instantiating MCP client for tool '{tool_name}' (server '{mcp_server_id}'): {e_client_init}")
+                        if tab_id:
+                            send_message({
+                                "tabId": tab_id,
+                                "payload": {
+                                    "status": "error_executing_tool",
+                                    "tool_name": tool_name,
+                                    "call_id": parsed_call_id,
+                                    "message": f"Python host: Error initializing client for tool '{tool_name}': {str(e_client_init)}",
+                                    "text_response": f"<tool_result><call_id>{parsed_call_id}</call_id><tool_name>{tool_name}</tool_name><result>ERROR: Initializing client for tool '{tool_name}': {str(e_client_init)}</result></tool_result>"
+                                }
+                            })
+                        if client and hasattr(client, 'close'): client.close() # Ensure close if partially initialized
+                        continue
+
+                    # 3. Execute Tool Call
+                    tool_result = None
+                    try:
+                        print_debug(f"Executing tool '{tool_name}' (ID: {parsed_call_id}) with params: {parameters} via MCP client for server '{mcp_server_id}'.")
+                        tool_result = client.call_method_jsonrpc(tool_name, parameters)
+                        print_debug(f"Tool '{tool_name}' (ID: {parsed_call_id}) executed successfully. Raw Result: {str(tool_result)[:200]}...")
+
+                        # 1. Define Result XML Structure & 2. Format the Result
+                        actual_result_content = ""
+                        if isinstance(tool_result, (dict, list)):
+                            actual_result_content = json.dumps(tool_result)
+                        elif tool_result is None: # Handle None explicitly if necessary
+                            actual_result_content = "" # Or json.dumps(None) -> "null"
+                        else:
+                            actual_result_content = str(tool_result)
+
+                        # Basic XML escaping for the content - just in case, though JSON strings are usually safe.
+                        # A more robust solution might use a library or more careful escaping.
+                        actual_result_content = actual_result_content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+                        formatted_xml_result = f"""<tool_result>
+  <call_id>{parsed_call_id}</call_id>
+  <tool_name>{tool_name}</tool_name>
+  <result>{actual_result_content}</result>
+</tool_result>"""
+
+                        print_debug(f"Formatted XML result for '{tool_name}' (ID: {parsed_call_id}): {formatted_xml_result}")
+
+                        # 3. Send Formatted Result to Extension
+                        response_payload_to_extension = {
+                            "status": "tool_executed_and_result_ready",
+                            "tool_name": tool_name,
+                            "call_id": parsed_call_id,
+                            "text_response": formatted_xml_result
+                        }
+                        if tab_id:
+                            send_message({"tabId": tab_id, "payload": response_payload_to_extension})
+                            print_debug(f"Sent formatted XML result to extension for tool '{tool_name}', call_id '{parsed_call_id}'.")
+                        else:
+                            print_debug(f"Warning: No tabId, cannot send formatted XML result for call_id '{parsed_call_id}'.")
+
+                    except Exception as e_tool_call:
+                        print_debug(f"Error executing tool '{tool_name}' (ID: {parsed_call_id}) via MCP client: {e_tool_call}")
+                        if tab_id:
+                            send_message({
+                                "tabId": tab_id,
+                                "payload": {
+                                    "status": "error_executing_tool",
+                                    "tool_name": tool_name,
+                                    "call_id": parsed_call_id,
+                                    "message": f"Python host: Error during execution of tool '{tool_name}': {str(e_tool_call)}",
+                                    "text_response": f"<tool_result><call_id>{parsed_call_id}</call_id><tool_name>{tool_name}</tool_name><result>ERROR: During execution of tool '{tool_name}': {str(e_tool_call)}</result></tool_result>"
+                                }
+                            })
+                        continue # Continue to next tool call if there was an error
+                    finally:
+                        if client and hasattr(client, 'close') and callable(client.close):
+                            try:
+                                client.close()
+                                print_debug(f"Closed MCP client for tool '{tool_name}' (server '{mcp_server_id}').")
+                            except Exception as e_close:
+                                print_debug(f"Error closing MCP client for '{mcp_server_id}': {e_close}")
+                    # --- END TOOL EXECUTION LOGIC ---
 
             elif message_type == "PING": # Example of handling other message types
                 print_debug("Received PING from extension.")

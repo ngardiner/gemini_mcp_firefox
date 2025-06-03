@@ -2,6 +2,7 @@
 
 const nativeHostName = "mcp_native_host";
 let port = null;
+let processedCallIds = new Set();
 
 console.log("Background script loaded.");
 
@@ -70,6 +71,19 @@ function connectToNativeHost() {
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("Message received in background script from content script:", message);
   if (message.type === "TOOL_CALL_DETECTED") {
+    const callId = message.payload && message.payload.call_id;
+
+    if (callId) {
+      if (processedCallIds.has(callId)) {
+        console.log(`Duplicate call_id detected, skipping: ${callId}`);
+        // Optionally send a response to the content script indicating a duplicate
+        // sendResponse({ status: "Duplicate call_id, message not forwarded." });
+        return false; // Or true if sending async response
+      }
+      processedCallIds.add(callId);
+      console.log(`New call_id ${callId} added to processed set.`);
+    }
+
     if (!port) {
         connectToNativeHost();
     }
