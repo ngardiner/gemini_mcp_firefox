@@ -69,14 +69,40 @@ function setupUI() {
       }
       console.log("Gemini MCP Client: Injected dummy prompt:", dummyMessage);
 
-      // Try to find and click the send button
-      // More specific selectors might be needed for Gemini's interface
-      const sendButton = document.querySelector('button[aria-label*="Send Message"], button[data-testid*="send-button"], button:has(svg[class*="send-icon"]), button.send-button'); // Added a generic class
+      // Refined send button selection logic
+      let sendButton = null;
+      const sendButtonSelectors = [
+        'button[data-testid="send-button"]', // Often used for testing, can be stable
+        'button[aria-label*="Send" i]',    // Case-insensitive aria-label containing "Send"
+        'button[aria-label*="Submit" i]',  // Case-insensitive aria-label containing "Submit"
+        // The following selector attempts to find a button that is likely the send button
+        // by looking for common SVG paths associated with send icons (paper airplane).
+        // This is highly dependent on the SVG structure used by Gemini.
+        // Example: 'button:has(svg path[d*="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"])', // Material Design paper airplane
+        // For now, keeping it simpler as complex SVG path selectors can be brittle.
+        'button:has(svg[class*="send-icon"])', // Original attempt, class might vary
+        'button.send-button' // A generic class that might be used
+      ];
+
+      for (const selector of sendButtonSelectors) {
+        const button = document.querySelector(selector);
+        if (button && !button.disabled && button.offsetParent !== null) { // Check if visible and not disabled
+          sendButton = button;
+          console.log("Gemini MCP Client: Found potential send button with selector:", selector, sendButton);
+          break;
+        }
+      }
+      
       if (sendButton) {
-        sendButton.click();
-        console.log("Gemini MCP Client: Clicked send button for dummy prompt.");
+        console.log("Gemini MCP Client: Attempting to click send button:", sendButton);
+        if (!sendButton.disabled) {
+            sendButton.click();
+            console.log("Gemini MCP Client: Clicked send button for dummy prompt.");
+        } else {
+            console.warn("Gemini MCP Client: Send button found but is disabled. Cannot send dummy prompt automatically.");
+        }
       } else {
-        console.warn("Gemini MCP Client: Send button not found for dummy prompt.");
+        console.warn("Gemini MCP Client: Send button not found or not clickable. Dummy prompt injected but not submitted.");
       }
     } else {
       console.error("Gemini MCP Client: Chat input field not found for dummy prompt.");
@@ -327,14 +353,37 @@ function stopObserver() {
 
 // Function to initialize targetNode and start observer
 function initializeTargetNodeAndObserver(forceStart = false) {
-    // Refined targetNode selection - this is still a guess and needs inspection of Gemini's DOM
-    // It's better to find the most specific container for chat messages.
-    // Example: document.querySelector('.chat-history-container') or similar
-    // Let's try a more common selector for chat interfaces
-    targetNode = document.querySelector('main') || document.body; // Try 'main', then fallback to 'body'
+    // Attempt to find a more specific target node for Gemini's responses.
+    // These selectors are common patterns for chat applications.
+    const selectors = [
+        '[role="log"]',                           // ARIA role often used for chat logs
+        '.chat-history',                        // Common class name for chat history container
+        '.message-list-container',              // Another common class name
+        'div[aria-live="polite"]',              // Elements that announce updates
+        'main .chat-area',                      // More specific if 'main' contains a 'chat-area'
+        'main',                                 // General main content area
+        // Add more selectors here if needed based on Gemini's actual DOM structure
+    ];
+
+    let foundNode = null;
+    for (const selector of selectors) {
+        foundNode = document.querySelector(selector);
+        if (foundNode) {
+            console.log("Gemini MCP Client: Found targetNode with selector:", selector, foundNode);
+            break;
+        }
+    }
+
+    targetNode = foundNode || document.body; // Fallback to document.body if no specific selector matches
+
+    if (targetNode === document.body) {
+        console.warn("Gemini MCP Client: Using document.body as fallback targetNode for MutationObserver. This might be inefficient. A more specific selector is recommended for Gemini's response area.");
+    } else {
+        console.log("Gemini MCP Client: Target node for MutationObserver set to:", targetNode);
+    }
 
     if (targetNode) {
-        console.log("Gemini MCP Client: Target node for MutationObserver set to:", targetNode);
+        // console.log("Gemini MCP Client: Target node for MutationObserver set to:", targetNode); // Already logged above with more context
         if (isMcpClientEnabled || forceStart) {
             startObserver();
         }
