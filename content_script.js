@@ -353,4 +353,3 @@ function initializeTargetNodeAndObserver(forceStart = false) {
  setTimeout(() => {
      initializeTargetNodeAndObserver(true);
  }, 1000);
-```
