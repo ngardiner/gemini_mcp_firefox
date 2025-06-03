@@ -208,7 +208,16 @@ function handleFoundCodeElement(codeElement, sourceType) {
             console.warn("Gemini MCP Client [TOOL-DETECT]: Extracted textContent does not start with '<', might not be valid XML for tool call:", rawXml.substring(0,100) + "...");
         }
 
-        sendToolCallToBackground({ raw_xml: rawXml, call_id: null }); // Re-enabled
+        let extractedCallId = null;
+        if (codeElement.dataset.callId) {
+            extractedCallId = codeElement.dataset.callId;
+            console.log(`Gemini MCP Client [TOOL-DETECT]: Found call_id on element: ${extractedCallId}`);
+        } else if (codeElement.parentElement && codeElement.parentElement.dataset.callId) {
+            extractedCallId = codeElement.parentElement.dataset.callId;
+            console.log(`Gemini MCP Client [TOOL-DETECT]: Found call_id on parentElement: ${extractedCallId}`);
+        }
+
+        sendToolCallToBackground({ raw_xml: rawXml, call_id: extractedCallId });
 
         codeElement.dataset.mcpProcessed = 'true'; // Re-enabled
         console.log(`Gemini MCP Client [TOOL-DETECT]: Marked <code> element as processed. Class: ${codeElement.className}, ID: ${codeElement.id}`);
