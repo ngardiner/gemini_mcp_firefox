@@ -23,7 +23,7 @@ Setting up this extension involves two main parts: loading the Firefox extension
 
 ### 1. Firefox Extension Setup
 
-   a. **Download or Clone:** Ensure you have all extension files (`manifest.json`, `content_script.js`, `background.js`, `mcp_native_host.py`, `mcp_native_host_manifest.json`, and this `README.md`) in a local directory.
+   a. **Download or Clone:** Ensure you have all extension files (`manifest.json`, `content_script.js`, `background.js`, `mcp_native_host.py`, `mcp_native_host.json`, and this `README.md`) in a local directory.
    b. **Open Firefox.**
    c. **Navigate to Add-ons:**
       *   Type `about:debugging` in the address bar and press Enter.
@@ -56,10 +56,10 @@ This is the more complex part and requires careful setup. The extension needs to
       *   Ensure it has the correct shebang line at the top: `#!/usr/bin/env python3` (or your Python 3 path).
       *   Place this script in a known location. For example, you can place it in the same directory where you will put the native messaging host manifest file (see next step), or another directory of your choice.
 
-   c. **Configure and Register the Native Messaging Host Manifest (`mcp_native_host_manifest.json`):**
-      This JSON file tells Firefox where to find your Python script and which extension can talk to it.
-      *   **Edit `mcp_native_host_manifest.json`:**
-          The provided `mcp_native_host_manifest.json` has a `"path"` field:
+   c. **Configure and Register the Native Messaging Host Manifest (`mcp_native_host.json`):**
+      This JSON file tells Firefox where to find your Python script and which extension can talk to it. The manifest file is named `mcp_native_host.json` in the repository.
+      *   **Edit `mcp_native_host.json`:**
+          The provided `mcp_native_host.json` has a `"path"` field:
           ```json
           {
             "name": "mcp_native_host",
@@ -71,29 +71,29 @@ This is the more complex part and requires careful setup. The extension needs to
             ]
           }
           ```
-          You **MUST** update the `"path"` value in `mcp_native_host_manifest.json` to be the **absolute path** to your `mcp_native_host.py` script.
+          You **MUST** update the `"path"` value in `mcp_native_host.json` to be the **absolute path** to your `mcp_native_host.py` script.
           For example:
             - Windows: `"path": "C:\\Users\\YourName\\path\\to\\mcp_native_host.py"` (use double backslashes) or you might need to invoke python directly like `"path": "C:\\Path\\To\\Python\\python.exe", "C:\\Users\\YourName\\path\\to\\mcp_native_host.py"`. Simpler is often a .bat wrapper.
             - Linux/macOS: `"path": "/home/yourname/path/to/mcp_native_host.py"`
 
-      *   **Place the edited `mcp_native_host_manifest.json` into the correct Firefox directory, naming the file `mcp_native_host.json` (matching the `"name"` field):**
+      *   **Place the (potentially edited) `mcp_native_host.json` from your repository into the correct Firefox directory. The file *in that browser directory* must be named `mcp_native_host.json` (matching the `"name"` field within the JSON content). Ensure the `path` field inside this JSON file correctly points to your `mcp_native_host.py` script.**
           *   **Windows:**
               1. Open Registry Editor (`regedit`).
               2. Navigate to `HKEY_CURRENT_USER\Software\Mozilla\NativeMessagingHosts\`. If `Mozilla` or `NativeMessagingHosts` doesn't exist, create the key(s).
               3. Create a new key named `mcp_native_host`.
-              4. Set the `(Default)` value of this `mcp_native_host` key to the **full, absolute path** of your edited `mcp_native_host_manifest.json` file.
-                 Example: `C:\Users\YourName\path\to\the\mcp_native_host_manifest.json`
+              4. Set the `(Default)` value of this `mcp_native_host` key to the **full, absolute path** of the `mcp_native_host.json` file you have prepared (e.g., the one you copied from the repository and potentially edited).
+                 Example: `C:\Users\YourName\path\to\your\mcp_native_host.json`
           *   **Linux:**
               Create the directory if it doesn't exist: `mkdir -p ~/.mozilla/native-messaging-hosts/`
-              Copy your edited `mcp_native_host_manifest.json` to this directory, **renaming it to `mcp_native_host.json`**:
-              `cp /path/to/your/edited/mcp_native_host_manifest.json ~/.mozilla/native-messaging-hosts/mcp_native_host.json`
+              Copy the `mcp_native_host.json` from your repository (after ensuring its internal `path` field is correct) to this directory. The destination file must be named `mcp_native_host.json`.
+              `cp /path/to/your/repository/mcp_native_host.json ~/.mozilla/native-messaging-hosts/`
           *   **macOS:**
               Create the directory if it doesn't exist: `mkdir -p ~/Library/Application\ Support/Mozilla/NativeMessagingHosts/`
-              Copy your edited `mcp_native_host_manifest.json` to this directory, **renaming it to `mcp_native_host.json`**:
-              `cp /path/to/your/edited/mcp_native_host_manifest.json ~/Library/Application\ Support/Mozilla/NativeMessagingHosts/mcp_native_host.json`
+              Copy the `mcp_native_host.json` from your repository (after ensuring its internal `path` field is correct) to this directory. The destination file must be named `mcp_native_host.json`.
+              `cp /path/to/your/repository/mcp_native_host.json ~/Library/Application\ Support/Mozilla/NativeMessagingHosts/`
 
    d. **Verify Extension ID:**
-      The `mcp_native_host_manifest.json` allows connections from `"gemini-mcp-client@example.com"`. This ID is defined in the extension's `manifest.json` under `browser_specific_settings.gecko.id`. If you change it there, you must change it in `mcp_native_host_manifest.json` too.
+      The `mcp_native_host.json` allows connections from `"gemini-mcp-client@example.com"`. This ID is defined in the extension's `manifest.json` under `browser_specific_settings.gecko.id`. If you change it there, you must change it in `mcp_native_host.json` too.
 
 ### MCP Server Configuration (`mcp_servers_config.json`)
 
