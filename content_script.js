@@ -1,5 +1,99 @@
 console.log("Gemini MCP Client content script loaded. Version 2.0");
 
+// Global variable to track client state
+let isMcpClientEnabled = true;
+let observer = null; // Will be initialized later
+let targetNode = null; // Will be set later
+
+// Function to create and inject UI elements
+function setupUI() {
+  const uiContainer = document.createElement('div');
+  uiContainer.id = 'mcp-client-ui-container';
+  uiContainer.style.position = 'fixed';
+  uiContainer.style.top = '10px';
+  uiContainer.style.right = '10px';
+  uiContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+  uiContainer.style.padding = '10px';
+  uiContainer.style.border = '1px solid #ccc';
+  uiContainer.style.borderRadius = '5px';
+  uiContainer.style.zIndex = '9999';
+  uiContainer.style.fontFamily = 'Arial, sans-serif';
+  uiContainer.style.fontSize = '14px';
+  uiContainer.style.color = '#333';
+
+  // Toggle Switch
+  const toggleLabel = document.createElement('label');
+  toggleLabel.htmlFor = 'mcp-client-toggle';
+  toggleLabel.textContent = 'Enable MCP Client: ';
+  toggleLabel.style.marginRight = '5px';
+
+  const toggleSwitch = document.createElement('input');
+  toggleSwitch.type = 'checkbox';
+  toggleSwitch.id = 'mcp-client-toggle';
+  toggleSwitch.checked = isMcpClientEnabled;
+  toggleSwitch.style.verticalAlign = 'middle';
+
+  toggleSwitch.addEventListener('change', () => {
+    isMcpClientEnabled = toggleSwitch.checked;
+    console.log(`Gemini MCP Client ${isMcpClientEnabled ? 'enabled' : 'disabled'}`);
+    if (isMcpClientEnabled) {
+      startObserver();
+    } else {
+      stopObserver();
+    }
+  });
+
+  // Dummy Prompt Button
+  const dummyPromptButton = document.createElement('button');
+  dummyPromptButton.id = 'mcp-inject-dummy-prompt';
+  dummyPromptButton.textContent = 'Inject Dummy Prompt';
+  dummyPromptButton.style.marginTop = '10px';
+  dummyPromptButton.style.display = 'block';
+  dummyPromptButton.style.padding = '5px 10px';
+  dummyPromptButton.style.border = '1px solid #007bff';
+  dummyPromptButton.style.backgroundColor = '#007bff';
+  dummyPromptButton.style.color = 'white';
+  dummyPromptButton.style.borderRadius = '3px';
+  dummyPromptButton.style.cursor = 'pointer';
+
+  dummyPromptButton.addEventListener('click', () => {
+    const chatInputField = document.querySelector('textarea') || document.querySelector('div[contenteditable="true"]');
+    if (chatInputField) {
+      const dummyMessage = "Test message from MCP Client: Describe the process of photosynthesis.";
+      if (chatInputField.tagName === 'TEXTAREA' || chatInputField.tagName === 'INPUT') {
+        chatInputField.value = dummyMessage;
+        chatInputField.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      } else if (chatInputField.isContentEditable) {
+        chatInputField.textContent = dummyMessage;
+        chatInputField.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      }
+      console.log("Gemini MCP Client: Injected dummy prompt:", dummyMessage);
+
+      // Try to find and click the send button
+      // More specific selectors might be needed for Gemini's interface
+      const sendButton = document.querySelector('button[aria-label*="Send Message"], button[data-testid*="send-button"], button:has(svg[class*="send-icon"]), button.send-button'); // Added a generic class
+      if (sendButton) {
+        sendButton.click();
+        console.log("Gemini MCP Client: Clicked send button for dummy prompt.");
+      } else {
+        console.warn("Gemini MCP Client: Send button not found for dummy prompt.");
+      }
+    } else {
+      console.error("Gemini MCP Client: Chat input field not found for dummy prompt.");
+    }
+  });
+
+  const toggleDiv = document.createElement('div');
+  toggleDiv.appendChild(toggleLabel);
+  toggleDiv.appendChild(toggleSwitch);
+
+  uiContainer.appendChild(toggleDiv);
+  uiContainer.appendChild(dummyPromptButton);
+  document.body.appendChild(uiContainer);
+  console.log("Gemini MCP Client: UI elements injected.");
+}
+
+
 // Function to send tool call to background script
 function sendToolCallToBackground(toolCallData) {
   console.log("Sending tool call to background script:", toolCallData);
@@ -75,204 +169,122 @@ function handleNativeHostResponse(message) {
 // Listen for messages from the background script
 browser.runtime.onMessage.addListener(handleNativeHostResponse);
 
-// Example of how parseFunctionCalls should be structured
-function parseFunctionCalls(xmlString) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xmlString, "application/xml");
-  const tools = [];
-
-  // Check for parser errors
-  const parserError = doc.querySelector("parsererror");
-  if (parserError) {
-    console.error("Gemini MCP Client: XML parsing error:", parserError.textContent);
-    return [{
-      raw_xml: xmlString,
-      error: "XML parsing error: " + parserError.textContent,
-      tool_name: null,
-      parameters: {},
-      call_id: null
-    }];
-  }
-
-  const functionCallsElement = doc.documentElement.nodeName === 'function_calls' ? doc.documentElement : doc.querySelector("function_calls");
-
-  if (!functionCallsElement) {
-    console.warn("Gemini MCP Client: <function_calls> tag not found in the XML structure.");
-    return [{
-      raw_xml: xmlString,
-      error: "<function_calls> not found",
-      tool_name: null,
-      parameters: {},
-      call_id: null
-    }];
-  }
-
-  const invokeElements = functionCallsElement.querySelectorAll("invoke");
-
-  if (invokeElements.length === 0) {
-    // This case should ideally be handled by the improved wrapping logic in detectToolCallInMutation
-    // or by ensuring xmlString always has a <function_calls> root if it contains invokes.
-    console.warn("Gemini MCP Client: No <invoke> tags found within the primary parsed structure.");
-    return [];
-  }
-
-  invokeElements.forEach(invokeElement => {
-    const toolName = invokeElement.getAttribute("name");
-    const callId = invokeElement.getAttribute("call_id"); // Extract call_id
-
-    if (!toolName) {
-      console.warn("Gemini MCP Client: <invoke> tag missing 'name' attribute.", invokeElement.outerHTML);
-      // Optionally push an error object or just skip
-      // tools.push({ tool_name: null, parameters: {}, call_id: callId, raw_xml: invokeElement.outerHTML, error: "Invoke tag missing name" });
-      return; // Skip this invoke element if name is missing
-    }
-    // It's debatable if a missing call_id should be a hard error or just logged.
-    // For now, we'll pass it as null if missing, but log a warning.
-    if (!callId) {
-        console.warn("Gemini MCP Client: <invoke> tag missing 'call_id' attribute for tool:", toolName, invokeElement.outerHTML);
-    }
-
-    const parameters = {};
-    const parameterElements = invokeElement.querySelectorAll("parameter");
-
-    parameterElements.forEach(paramElement => {
-      const paramName = paramElement.getAttribute("name");
-      if (!paramName) {
-        console.warn("Gemini MCP Client: <parameter> tag missing 'name' attribute.", paramElement.outerHTML);
-        return; // Skip this parameter
-      }
-      if (paramElement.children.length > 0) {
-        parameters[paramName] = paramElement.innerHTML.trim();
-      } else {
-        parameters[paramName] = paramElement.textContent.trim();
-      }
-    });
-
-    tools.push({
-      tool_name: toolName,
-      parameters: parameters,
-      call_id: callId, // Add call_id to the toolData object
-      raw_xml: invokeElement.outerHTML
-    });
-  });
-
-  return tools;
-}
-
 function detectToolCallInMutation(mutation) {
   mutation.addedNodes.forEach(addedNode => {
     if (addedNode.nodeType !== Node.ELEMENT_NODE) return;
 
-    // Find all potential <invoke> elements within the addedNode context.
-    // This could be the addedNode itself if it's an invoke, or children if it's a container.
-    let potentialInvokeElements = [];
-    if (addedNode.matches('invoke')) {
-        potentialInvokeElements.push(addedNode);
-    } else {
-        // QuerySelectorAll is not available on text nodes, ensure addedNode is Element.
-        if (typeof addedNode.querySelectorAll === 'function') {
-            potentialInvokeElements.push(...addedNode.querySelectorAll('invoke'));
-        }
-    }
-
-    // If no <invoke> elements found directly, check if the addedNode contains a <function_calls> block
-    // that might wrap <invoke> elements which were not directly part of the initially added DOM snippet's
-    // direct structure but part of its conceptual content (e.g. if outerHTML of function_calls was used).
-    if (potentialInvokeElements.length === 0 && typeof addedNode.querySelector === 'function' && addedNode.querySelector('function_calls')){
-        // This path is more complex if the actual <invoke> nodes are not directly in `addedNode`'s queryable DOM yet.
-        // For now, we primarily rely on finding <invoke> tags directly or as immediate children.
-        // The string parsing later will handle cases where `outerHTML` of `function_calls` is processed.
-    }
-
-    // Step 1: Check existing <invoke> DOM elements for being already processed.
-    potentialInvokeElements.forEach(invokeElem => {
-        if (invokeElem.getAttribute('data-mcp-processed') === 'true') {
-            console.log("Gemini MCP Client: Skipping already processed <invoke> element with call_id:", invokeElem.getAttribute('data-mcp-call-id'));
-            return; // Skip this specific invoke element
-        }
-    });
-
-    // Step 2: Extract XML string for parsing (this part might lead to reparsing if not careful)
-    // The goal is to get the full <function_calls> block if possible for context.
     let potentialToolCallText = "";
-    let sourceIsOuterHTML = false;
-    if (addedNode.matches('function_calls') || (typeof addedNode.querySelector === 'function' && addedNode.querySelector('function_calls'))) {
-        const fcElement = addedNode.matches('function_calls') ? addedNode : addedNode.querySelector('function_calls');
-        potentialToolCallText = fcElement.outerHTML;
-        sourceIsOuterHTML = true;
-    } else if (addedNode.matches('invoke')) {
-        potentialToolCallText = addedNode.outerHTML;
-        sourceIsOuterHTML = true; // It's an invoke node's outerHTML
-    } else if (addedNode.textContent) {
-        let text = addedNode.textContent;
-        let functionCallsIndex = text.indexOf('<function_calls>');
-        let invokeIndex = text.indexOf('<invoke>');
-        if (functionCallsIndex !== -1 && (invokeIndex === -1 || functionCallsIndex < invokeIndex)) {
-            potentialToolCallText = text.substring(functionCallsIndex);
-        } else if (invokeIndex !== -1) {
-            potentialToolCallText = text.substring(invokeIndex);
-        } else { potentialToolCallText = ""; }
+    let callId = null;
+    let
+      isInvokeCall = false;
+    let elementToMark = null; // The DOM element that might be marked as processed
+
+    // Case 1: Added node is <function_calls>
+    if (addedNode.matches('function_calls')) {
+      console.log("Gemini MCP Client: Detected <function_calls> element directly added.");
+      potentialToolCallText = addedNode.outerHTML;
+      elementToMark = addedNode; // Mark the <function_calls> element itself or its first <invoke> child
+      // Try to find an invoke child to get call_id and potentially mark it
+      const invokeChild = addedNode.querySelector('invoke');
+      if (invokeChild) {
+        callId = invokeChild.getAttribute('call_id');
+        elementToMark = invokeChild; // Prefer marking the <invoke> element
+      }
     }
-    potentialToolCallText = potentialToolCallText.trim();
+    // Case 2: Added node is <invoke>
+    else if (addedNode.matches('invoke')) {
+      console.log("Gemini MCP Client: Detected <invoke> element directly added.");
+      potentialToolCallText = addedNode.outerHTML;
+      callId = addedNode.getAttribute('call_id');
+      isInvokeCall = true;
+      elementToMark = addedNode;
+    }
+    // Case 3: Added node contains <function_calls>
+    else if (typeof addedNode.querySelector === 'function' && addedNode.querySelector('function_calls')) {
+      console.log("Gemini MCP Client: Detected <function_calls> element within added node.");
+      const fcElement = addedNode.querySelector('function_calls');
+      potentialToolCallText = fcElement.outerHTML;
+      elementToMark = fcElement; // Mark the <function_calls> element
+      const invokeChild = fcElement.querySelector('invoke');
+      if (invokeChild) {
+        callId = invokeChild.getAttribute('call_id');
+        elementToMark = invokeChild; // Prefer marking the <invoke> element
+      }
+    }
+    // Case 4: Added node contains <invoke> (but not inside function_calls, e.g. if function_calls is higher up)
+    else if (typeof addedNode.querySelectorAll === 'function') {
+        const invokes = addedNode.querySelectorAll('invoke');
+        if (invokes.length > 0) {
+            // Process the first one for now. Robust handling of multiple independent invokes
+            // without a common function_calls parent in the same mutation needs careful consideration.
+            console.log("Gemini MCP Client: Detected <invoke> element(s) within added node.");
+            const firstInvoke = invokes[0];
+            potentialToolCallText = firstInvoke.outerHTML;
+            callId = firstInvoke.getAttribute('call_id');
+            isInvokeCall = true;
+            elementToMark = firstInvoke;
+
+            // If multiple invokes are added in the same blob without a parent <function_calls>
+            // this simplified logic will only catch the first. This might be an edge case.
+            if (invokes.length > 1) {
+                console.warn("Gemini MCP Client: Multiple <invoke> elements found in added node without a <function_calls> parent. Processing only the first.");
+            }
+        }
+    }
+
 
     if (potentialToolCallText) {
-        if (potentialToolCallText.startsWith('<invoke')) {
-             if (!potentialToolCallText.includes('<function_calls>')) { // Avoid double wrap
-                 potentialToolCallText = `<function_calls>${potentialToolCallText}</function_calls>`;
-             }
-        } else if (sourceIsOuterHTML && addedNode.matches('invoke') && !potentialToolCallText.includes('<function_calls>')){
-            potentialToolCallText = `<function_calls>${potentialToolCallText}</function_calls>`;
+      // If it's an invoke call and not already wrapped, wrap it.
+      if (isInvokeCall && !potentialToolCallText.includes('<function_calls>')) {
+        potentialToolCallText = `<function_calls>${potentialToolCallText}</function_calls>`;
+        console.log("Gemini MCP Client: Wrapped <invoke> with <function_calls>.");
+      }
+
+      // DOM Marking Logic (Simplified)
+      if (elementToMark && callId) {
+        if (elementToMark.getAttribute('data-mcp-processed') === 'true' && elementToMark.getAttribute('data-mcp-call-id') === callId) {
+          console.log("Gemini MCP Client: Skipping already processed element with call_id:", callId);
+          return; // Already processed and sent
         }
-
-        console.log("Gemini MCP Client: Text for parsing:", potentialToolCallText);
-        const parsedToolDataArray = parseFunctionCalls(potentialToolCallText);
-
-        if (parsedToolDataArray && parsedToolDataArray.length > 0) {
-          parsedToolDataArray.forEach(parsedToolData => {
-            if (parsedToolData.error) {
-                console.warn("Gemini MCP Client: Error parsing tool data, skipping send:", parsedToolData);
-                return; // Skip if there was a parsing error from parseFunctionCalls
-            }
-            if (parsedToolData.tool_name && parsedToolData.call_id) {
-                // Find the corresponding DOM element to mark it.
-                // This assumes call_id is unique within the scope of `addedNode` or its children.
-                let invokeToMark = null;
-                if (addedNode.matches('invoke') && addedNode.getAttribute('call_id') === parsedToolData.call_id) {
-                    invokeToMark = addedNode;
-                } else if (typeof addedNode.querySelectorAll === 'function'){
-                    // Query within the context of the addedNode that contained the tool call string
-                    const callIdValue = String(parsedToolData.call_id).replace(/"/g, '\\"').replace(/`/g, '\\`'); // Escape " as \\" and ` as \\`
-                    invokeToMark = addedNode.querySelector(`invoke[call_id="${callIdValue}"]`);
-                }
-
-                if (invokeToMark) {
-                    if (invokeToMark.getAttribute('data-mcp-processed') === 'true') {
-                        console.log("Gemini MCP Client: Tool call already marked processed, skipping send for call_id:", parsedToolData.call_id);
-                        return;
-                    }
-                    console.log("Gemini MCP Client: Successfully parsed tool data:", parsedToolData);
-                    sendToolCallToBackground(parsedToolData);
-                    invokeToMark.setAttribute('data-mcp-processed', 'true');
-                    invokeToMark.setAttribute('data-mcp-call-id', parsedToolData.call_id);
-                    console.log("Gemini MCP Client: Marked invoke element as processed for call_id:", parsedToolData.call_id);
-                } else {
-                    // If we can't find the specific invoke element to mark (e.g. if parsing from textContent of a large block)
-                    // we might still send it, but won't get DOM-based re-processing protection for this specific instance.
-                    // ***** MODIFIED LINE BELOW *****
-                    console.warn("Gemini MCP Client: Could not find specific invoke DOM element to mark for call_id: " + parsedToolData.call_id + ". Sending data anyway.");
-                    sendToolCallToBackground(parsedToolData);
-                }
-            } else if (parsedToolData.tool_name && !parsedToolData.call_id) {
-                console.warn("Gemini MCP Client: Parsed tool data is missing call_id. Sending without marking DOM.", parsedToolData);
-                sendToolCallToBackground(parsedToolData);
-            }
-          });
+      } else if (elementToMark && elementToMark.matches('function_calls') && !callId) {
+        // If we have a function_calls element but couldn't find a call_id from a child invoke,
+        // check if it has been marked processed by text content (less ideal).
+        if (elementToMark.getAttribute('data-mcp-processed') === 'true') {
+             console.log("Gemini MCP Client: Skipping already processed <function_calls> element (no call_id found for specific marking).");
+             return;
         }
+      }
+
+
+      console.log("Gemini MCP Client: Extracted raw XML:", potentialToolCallText, "Call ID from DOM:", callId);
+
+      sendToolCallToBackground({
+        raw_xml: potentialToolCallText,
+        call_id: callId || null
+      });
+
+      // Mark as processed if we have an element and a call_id from its attribute
+      if (elementToMark && callId) {
+        elementToMark.setAttribute('data-mcp-processed', 'true');
+        elementToMark.setAttribute('data-mcp-call-id', callId);
+        console.log("Gemini MCP Client: Marked element as processed with call_id:", callId, elementToMark);
+      } else if (elementToMark && elementToMark.matches('function_calls>') && !callId) {
+        // If it's a function_calls element and we didn't get a call_id (e.g. no invoke child or invoke missing id),
+        // we can still mark the function_calls element itself to prevent re-processing its whole outerHTML text.
+        elementToMark.setAttribute('data-mcp-processed', 'true');
+        console.log("Gemini MCP Client: Marked <function_calls> element as processed (no specific call_id).", elementToMark);
+      } else {
+        // If no specific element could be pinpointed for marking (e.g., text-based detection - though less emphasized now)
+        // or if call_id was not available from DOM attribute. Python side will do more robust duplicate check.
+        console.log("Gemini MCP Client: Tool call sent. No specific DOM element marked as call_id was not available or elementToMark is null.");
       }
     }
   });
 }
-function observerCallback(mutationsList, observer) {
+
+function observerCallback(mutationsList, _observer) {
+  if (!isMcpClientEnabled) return; // Check if client is enabled
+
   for (const mutation of mutationsList) {
     if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
       detectToolCallInMutation(mutation);
@@ -283,21 +295,62 @@ function observerCallback(mutationsList, observer) {
 const observerOptions = {
   childList: true,
   subtree: true,
-  attributes: false
+  // attributes: false // Not watching attributes for now.
 };
 
-// Refined targetNode selection - this is still a guess and needs inspection of Gemini's DOM
-// It's better to find the most specific container for chat messages.
-// Example: document.querySelector('.chat-history-container') or similar
-const targetNode = document.body; // Fallback, should be more specific
-
-const observer = new MutationObserver(observerCallback);
-
-if (targetNode) {
-  observer.observe(targetNode, observerOptions);
-  console.log("Gemini MCP Client: MutationObserver started. Target:", targetNode);
-} else {
-  console.error("Gemini MCP Client: Target node for MutationObserver not found.");
+// Start and Stop observer functions
+function startObserver() {
+  if (!observer) { // Check if observer is already initialized
+      observer = new MutationObserver(observerCallback);
+  }
+  if (targetNode && isMcpClientEnabled) {
+    try {
+        observer.observe(targetNode, observerOptions);
+        console.log("Gemini MCP Client: MutationObserver started/restarted. Target:", targetNode);
+    } catch (e) {
+        console.error("Gemini MCP Client: Error starting MutationObserver:", e);
+        // Potentially, targetNode became invalid if UI framework replaced it. Re-query.
+        initializeTargetNodeAndObserver(true); // Force re-query
+    }
+  } else if (!targetNode) {
+    console.error("Gemini MCP Client: Target node not available to start observer.");
+    initializeTargetNodeAndObserver(true); // Attempt to initialize again
+  }
 }
 
-// No need for the old logDebugMessage function, as logging is now part of sendToolCallToBackground or handled by native host.
+function stopObserver() {
+  if (observer) {
+    observer.disconnect();
+    console.log("Gemini MCP Client: MutationObserver stopped.");
+  }
+}
+
+// Function to initialize targetNode and start observer
+function initializeTargetNodeAndObserver(forceStart = false) {
+    // Refined targetNode selection - this is still a guess and needs inspection of Gemini's DOM
+    // It's better to find the most specific container for chat messages.
+    // Example: document.querySelector('.chat-history-container') or similar
+    // Let's try a more common selector for chat interfaces
+    targetNode = document.querySelector('main') || document.body; // Try 'main', then fallback to 'body'
+
+    if (targetNode) {
+        console.log("Gemini MCP Client: Target node for MutationObserver set to:", targetNode);
+        if (isMcpClientEnabled || forceStart) {
+            startObserver();
+        }
+    } else {
+        console.error("Gemini MCP Client: Target node for MutationObserver not found even after attempt.");
+    }
+}
+
+// Initial setup
+setupUI(); // Create and inject UI elements
+
+// Initialize and start the observer after UI is ready and DOM might be more stable
+// Adding a small delay to potentially allow Gemini's UI to finish its initial rendering.
+setTimeout(() => {
+    initializeTargetNodeAndObserver(true); // Initialize and force start if enabled
+}, 1000);
+
+
+// No need for the old logDebugMessage function
