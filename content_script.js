@@ -253,164 +253,134 @@ function handleNativeHostResponse(message) {
 // Listen for messages from the background script
 browser.runtime.onMessage.addListener(handleNativeHostResponse);
 
-function detectToolCallInMutation(mutation) {
-    console.log("Gemini MCP Client [DEBUG]: Mutation observed. Type:", mutation.type);
-    mutation.addedNodes.forEach((addedNode, index) => {
-        if (addedNode.nodeType === Node.ELEMENT_NODE) {
-            console.log(`Gemini MCP Client [DEBUG]: Added node [${index}] outerHTML:`, addedNode.outerHTML.substring(0, 500) + (addedNode.outerHTML.length > 500 ? "..." : ""));
-        } else {
-            console.log(`Gemini MCP Client [DEBUG]: Added node [${index}] (not an element):`, addedNode.nodeName, addedNode.textContent);
-        }
-    });
+// Broad debug logging for tool call detection
+function debugDetectToolCallInMutation(mutationsList, _observer) {
+    if (!isMcpClientEnabled) return;
 
-    mutation.addedNodes.forEach(addedNode => { // Keep original loop for processing
-        if (addedNode.nodeType !== Node.ELEMENT_NODE) return;
-
-        let codeBlocksToSearch = [];
-        let responseElements = [];
-
-        if (addedNode.matches && addedNode.matches('response-element')) {
-            responseElements.push(addedNode);
-        } else if (addedNode.querySelectorAll) {
-            responseElements.push(...Array.from(addedNode.querySelectorAll('response-element')));
+    mutationsList.forEach(mutation => {
+        console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]: Mutation type:", mutation.type);
+        if (mutation.target && mutation.target.outerHTML) {
+            console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   Target outerHTML (truncated):", mutation.target.outerHTML.substring(0, 500));
+        } else if (mutation.target) {
+            console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   Target nodeName:", mutation.target.nodeName);
         }
 
-        responseElements.forEach(responseElem => {
-            console.log("Gemini MCP Client [DEBUG]: Found <response-element>. outerHTML:", responseElem.outerHTML.substring(0, 500) + (responseElem.outerHTML.length > 500 ? "..." : ""));
-            if (responseElem.querySelectorAll) {
-                 codeBlocksToSearch.push(...Array.from(responseElem.querySelectorAll('code-block')));
-            }
-        });
-
-        if (addedNode.matches && addedNode.matches('code-block')) {
-            codeBlocksToSearch.push(addedNode);
-        } else if (addedNode.querySelectorAll) {
-            codeBlocksToSearch.push(...Array.from(addedNode.querySelectorAll('code-block')));
-        }
-
-        const uniqueCodeBlocks = Array.from(new Set(codeBlocksToSearch));
-
-        uniqueCodeBlocks.forEach(codeBlock => {
-            console.log("Gemini MCP Client [DEBUG]: Processing <code-block>. outerHTML:", codeBlock.outerHTML.substring(0, 500) + (codeBlock.outerHTML.length > 500 ? "..." : ""));
-            if (codeBlock.dataset.mcpProcessed === 'true') {
-                return;
-            }
-
-            const codeElement = codeBlock.querySelector('pre > code, code');
-
-            if (codeElement) {
-                console.log("Gemini MCP Client [DEBUG]: Found <code> element. textContent:", codeElement.textContent);
-                console.log("Gemini MCP Client [DEBUG]: Found <code> element. innerHTML:", codeElement.innerHTML.substring(0, 500) + (codeElement.innerHTML.length > 500 ? "..." : ""));
-
-                let potentialToolCallText = (codeElement.textContent || codeElement.innerHTML || "").trim();
-
-                if (potentialToolCallText.includes('<function_calls>') || potentialToolCallText.includes('<invoke>')) {
-                    console.log("Gemini MCP Client: Found potential tool call XML in <code> element:", potentialToolCallText.substring(0, 200) + "...");
-
-                    if (potentialToolCallText.startsWith('<invoke') && !potentialToolCallText.includes('<function_calls>')) {
-                        potentialToolCallText = `<function_calls>${potentialToolCallText}</function_calls>`;
-                        console.log("Gemini MCP Client: Wrapped single <invoke> with <function_calls>.");
-                    }
-
-                    const callIdFromDomAttribute = null;
-
-                    console.log("Gemini MCP Client [DEBUG]: Sending to background:", { raw_xml: potentialToolCallText, call_id: callIdFromDomAttribute });
-                    sendToolCallToBackground({
-                        raw_xml: potentialToolCallText,
-                        call_id: callIdFromDomAttribute
-                    });
-
-                    codeBlock.dataset.mcpProcessed = 'true';
-                    console.log("Gemini MCP Client: Marked <code-block> as processed.", codeBlock);
+        const checkAndLog = (node, nodeTypeDescription) => {
+            if (node && node.nodeType === Node.ELEMENT_NODE && node.outerHTML) {
+                if (node.outerHTML.includes("function_calls") || node.outerHTML.includes("<function_calls>")) {
+                    console.log(`Gemini MCP Client [DEBUG-TOOL-DETECT]:   'function_calls' string found in ${nodeTypeDescription}. outerHTML:`, node.outerHTML);
+                    if(node.parentElement) console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:     Parent of node:", node.parentElement.tagName, "Classes:", node.parentElement.className);
+                    if(node.parentElement && node.parentElement.parentElement) console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:     Grandparent of node:", node.parentElement.parentElement.tagName, "Classes:", node.parentElement.parentElement.className);
                 }
+            } else if (node && node.nodeType === Node.TEXT_NODE && node.nodeValue) {
+                 if (node.nodeValue.includes("function_calls") || node.nodeValue.includes("<function_calls>")) {
+                    console.log(`Gemini MCP Client [DEBUG-TOOL-DETECT]:   'function_calls' string found in ${nodeTypeDescription} (TextNode). Value:`, node.nodeValue);
+                    if(node.parentElement) console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:     Parent of text node:", node.parentElement.outerHTML.substring(0,500));
+                 }
             }
-        });
+        };
+
+        if (mutation.type === 'childList') {
+            mutation.addedNodes.forEach(addedNode => checkAndLog(addedNode, "addedNode"));
+            mutation.removedNodes.forEach(removedNode => checkAndLog(removedNode, "removedNode"));
+        } else if (mutation.type === 'attributes') {
+            const attrValue = mutation.target.getAttribute(mutation.attributeName);
+            if (attrValue && (attrValue.includes("function_calls") || attrValue.includes("<function_calls>"))) {
+                console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   'function_calls' string found in attribute mutation. Attribute:", mutation.attributeName, "New value (approx):", attrValue);
+                console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   Target element outerHTML:", mutation.target.outerHTML);
+            } else if (mutation.target.outerHTML && (mutation.target.outerHTML.includes("function_calls") || mutation.target.outerHTML.includes("<function_calls>"))) {
+                // Check outerHTML as well, as some attribute changes might reflect there more directly
+                // and the string might not be in the attribute value itself.
+                 console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   'function_calls' string found in target's outerHTML after attribute mutation. Attribute:", mutation.attributeName);
+                 console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   Target element outerHTML:", mutation.target.outerHTML);
+            }
+        } else if (mutation.type === 'characterData') {
+            if (mutation.target.nodeValue && (mutation.target.nodeValue.includes("function_calls") || mutation.target.nodeValue.includes("<function_calls>"))) {
+                console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   'function_calls' string found in characterData mutation. New value:", mutation.target.nodeValue);
+                console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]:   Parent of text node:", mutation.target.parentElement ? mutation.target.parentElement.outerHTML.substring(0,500) : "N/A");
+            }
+        }
     });
+
+    // Temporarily disable existing specific tool call detection logic
+    /*
+    mutation.addedNodes.forEach(addedNode => {
+        if (addedNode.nodeType !== Node.ELEMENT_NODE) return;
+        // ... (original logic for response-element, code-block, etc.) ...
+        // ... sendToolCallToBackground(...) ...
+    });
+    */
 }
 
-function observerCallback(mutationsList, _observer) {
-  if (!isMcpClientEnabled) return; // Check if client is enabled
+// const originalDetectToolCallInMutation = detectToolCallInMutation; // Keep a reference if needed later
 
-  for (const mutation of mutationsList) {
-    if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-      detectToolCallInMutation(mutation);
-    }
-  }
-}
+// The observer will now use the broad debug logging function.
+// The original detectToolCallInMutation is effectively disabled for this debugging phase.
+const observerCallback = debugDetectToolCallInMutation;
 
 const observerOptions = {
   childList: true,
   subtree: true,
-  // attributes: false // Not watching attributes for now.
+  attributes: true, // Watch for attribute changes
+  characterData: true, // Watch for text content changes
+  // characterDataOldValue: true // Optional: to see the old value before change
 };
+
 
 // Start and Stop observer functions
 function startObserver() {
-  if (!observer) { // Check if observer is already initialized
-      observer = new MutationObserver(observerCallback);
+  if (!observer) {
+      console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]: Creating new MutationObserver with options:", observerOptions);
+      observer = new MutationObserver(observerCallback); // Ensure it uses the new callback
   }
   if (targetNode && isMcpClientEnabled) {
     try {
         observer.observe(targetNode, observerOptions);
-        console.log("Gemini MCP Client: MutationObserver started/restarted. Target:", targetNode);
+        console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]: MutationObserver started/restarted. Target:", targetNode, "Options:", observerOptions);
     } catch (e) {
-        console.error("Gemini MCP Client: Error starting MutationObserver:", e);
-        // Potentially, targetNode became invalid if UI framework replaced it. Re-query.
-        initializeTargetNodeAndObserver(true); // Force re-query
+        console.error("Gemini MCP Client [ERROR]: Error starting MutationObserver:", e);
+        initializeTargetNodeAndObserver(true);
     }
   } else if (!targetNode) {
-    console.error("Gemini MCP Client: Target node not available to start observer.");
-    initializeTargetNodeAndObserver(true); // Attempt to initialize again
+    console.error("Gemini MCP Client [ERROR]: Target node not available to start observer.");
+    initializeTargetNodeAndObserver(true);
   }
 }
 
 function stopObserver() {
   if (observer) {
     observer.disconnect();
-    console.log("Gemini MCP Client: MutationObserver stopped.");
+    console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]: MutationObserver stopped.");
   }
 }
 
 // Function to initialize targetNode and start observer
 function initializeTargetNodeAndObserver(forceStart = false) {
-    // Attempt to find a more specific target node for Gemini's responses.
-    // These selectors are common patterns for chat applications.
-    const targetSelectors = [ // Renamed for clarity in logging
+    // Temporarily bypass multi-selector logic and use document.body for broad debugging
+    console.log("Gemini MCP Client [DEBUG-TOOL-DETECT]: Observer targetNode set to document.body for broad debugging.");
+    targetNode = document.body;
+
+    // Original multi-selector logic - temporarily commented out for broad debugging
+    /*
+    const targetSelectors = [
         '[role="log"]',
         '.chat-history',
-        '.message-list-container',
-        'div[aria-live="polite"]',
-        'main .chat-area',
-        'main',
+        // ... other selectors ...
     ];
     console.log("Gemini MCP Client [DEBUG]: Attempting to select targetNode. Candidate selectors:", targetSelectors);
-
-    let foundNode = null;
-    let usedSelector = "";
-    for (const selector of targetSelectors) {
-        foundNode = document.querySelector(selector);
-        if (foundNode) {
-            usedSelector = selector;
-            console.log(`Gemini MCP Client [DEBUG]: Successfully selected targetNode with selector: '${usedSelector}'. Observed element:`, foundNode);
-            break;
-        }
-    }
-
-    targetNode = foundNode || document.body;
-
-    if (targetNode === document.body && !foundNode) { // Only log fallback if no specific node was found
+    // ... (rest of the original selector logic) ...
+    if (targetNode === document.body && !foundNode) {
         console.warn("Gemini MCP Client [DEBUG]: Falling back to document.body for targetNode. This may be inefficient.");
-    } else if (foundNode) { // Log the successfully chosen specific node (already done above)
-        // console.log("Gemini MCP Client: Target node for MutationObserver set to:", targetNode); // Redundant due to log above
     }
-
+    */
 
     if (targetNode) {
         if (isMcpClientEnabled || forceStart) {
             startObserver();
         }
     } else {
-        console.error("Gemini MCP Client: Target node for MutationObserver not found even after attempt.");
+        // This case should not be reached if targetNode is set to document.body by default
+        console.error("Gemini MCP Client [ERROR]: Target node for MutationObserver could not be set, even to document.body.");
     }
 }
 
