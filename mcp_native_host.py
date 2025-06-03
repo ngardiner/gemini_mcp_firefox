@@ -1,12 +1,11 @@
+#!/usr/bin/env python3
+
 import sys
 import sys
 import json
 import struct
 import os
 import xml.etree.ElementTree as ET
-# import urllib.request # No longer needed
-# import urllib.error   # No longer needed
-# import socket         # No longer needed
 
 # Attempt to import fastmcp, provide a mock if not found for basic script structure to be valid
 try:
