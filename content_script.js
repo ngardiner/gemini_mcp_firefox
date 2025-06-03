@@ -56,104 +56,115 @@ function setupUI() {
   dummyPromptButton.style.borderRadius = '3px';
   dummyPromptButton.style.cursor = 'pointer';
 
-  dummyPromptButton.addEventListener('click', () => {
-    console.log("Gemini MCP Client [DEBUG]: Dummy prompt button clicked. Starting search for chat input and send button.");
+// Function to inject text and send the message using polling for the send button
+async function injectAndSendMessage(textToInject, isToolResult = false) {
+    console.log(`Gemini MCP Client [DEBUG]: injectAndSendMessage called. isToolResult: ${isToolResult}, text: "${textToInject.substring(0, 50)}..."`);
 
     const chatInputSelector = 'div.ql-editor.textarea.new-input-ui p';
     console.log("Gemini MCP Client [DEBUG]: Attempting to find chat input with selector:", chatInputSelector);
     const chatInputField = document.querySelector(chatInputSelector);
 
-    if (chatInputField) {
-      console.log("Gemini MCP Client [DEBUG]: Found chat input field:", chatInputField);
-      const dummyMessage = "Test message from MCP Client: Describe the process of photosynthesis.";
-
-      // Set text content
-      chatInputField.textContent = dummyMessage;
-
-      // Dispatch events
-      chatInputField.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-      chatInputField.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
-      console.log("Gemini MCP Client [DEBUG]: Injected dummy message and dispatched input/change events.");
-
-      // Send button selection logic
-      let sendButton = null;
-      let clickedSuccessfully = false; // Flag to track if click was successful
-
-      // Define selectors with the new primary selector first
-      const newPrimarySendSelector = 'button.mat-mdc-icon-button.send-button';
-      const oldPrimarySelector = 'button.send-button.submit[aria-label="Send message"]'; // Previous primary, now a high-priority fallback
-      const fallbackSendSelectors = [
-        oldPrimarySelector, // Keep the user-provided one high in fallback list
-        'button[data-testid="send-button"]',
-        'button[aria-label*="Send" i]',
-        'button[aria-label*="Submit" i]',
-        'button:has(svg[class*="send-icon"])', // Original attempt, class might vary
-        'button.send-button' // A generic class that might be used
-      ];
-
-      const attemptClick = (button, selectorUsed) => {
-        console.log("Gemini MCP Client [DEBUG]: attemptClick called for button found by selector:", selectorUsed, button);
-        if (button && button.offsetParent !== null) { // Check if visible
-          if (!button.disabled) {
-            console.log(`Gemini MCP Client [DEBUG]: Found send button with selector: "${selectorUsed}". Attempting to click.`, button);
-            button.click();
-            console.log("Gemini MCP Client [DEBUG]: Click successful for button found by:", selectorUsed);
-            return true; // Click successful
-          } else {
-            console.warn(`Gemini MCP Client [DEBUG]: Send button found with selector: "${selectorUsed}", but it is disabled.`, button);
-            return false; // Found but disabled
-          }
-        } else if (button) {
-            console.warn(`Gemini MCP Client [DEBUG]: Send button found with selector: "${selectorUsed}", but it is not visible (offsetParent is null).`, button);
-            return false; // Found but not visible
-        }
-        return false; // Not found or not visible (button was null)
-      };
-
-      const trySelectors = (selectorsList) => {
-          for (const selector of selectorsList) {
-              console.log("Gemini MCP Client [DEBUG]: Attempting to find send button with selector:", selector);
-              const button = document.querySelector(selector);
-              if (button) {
-                  console.log("Gemini MCP Client [DEBUG]: Found button candidate with selector '" + selector + "'. outerHTML:", button.outerHTML);
-                  console.log("Gemini MCP Client [DEBUG]: Button innerText:", button.innerText);
-                  console.log("Gemini MCP Client [DEBUG]: Button disabled state:", button.disabled);
-                  console.log("Gemini MCP Client [DEBUG]: Button offsetParent (for visibility):", button.offsetParent);
-                  const computedStyle = window.getComputedStyle(button);
-                  console.log("Gemini MCP Client [DEBUG]: Button computed style - display:", computedStyle.display, "visibility:", computedStyle.visibility, "opacity:", computedStyle.opacity);
-              } else {
-                  console.log("Gemini MCP Client [DEBUG]: No button found with selector:", selector);
-              }
-
-              if (attemptClick(button, selector)) {
-                  sendButton = button; // Assign to outer scope sendButton
-                  return true; // Clicked successfully
-              } else if (button) { // Found but not clickable
-                  console.warn(`Gemini MCP Client [DEBUG]: Selector "${selector}" found a button, but it was not clickable.`);
-              }
-          }
-          return false; // No selector in this list resulted in a click
-      };
-
-      // Try new primary selector first
-      if (trySelectors([newPrimarySendSelector])) {
-          clickedSuccessfully = true;
-      } else {
-          console.log(`Gemini MCP Client [DEBUG]: New primary selector "${newPrimarySendSelector}" did not find a clickable button. Trying other fallbacks.`);
-          if (trySelectors(fallbackSendSelectors)) {
-              clickedSuccessfully = true;
-          }
-      }
-
-      if (!clickedSuccessfully) { // Check the flag instead of sendButton directly
-        console.error("Gemini MCP Client [DEBUG]: After all attempts, no clickable send button was found.");
-        console.warn("Gemini MCP Client: No clickable send button found after trying all selectors. Dummy prompt injected but not submitted.");
-          }
-      }
-    } else {
-      console.error("Gemini MCP Client [DEBUG]: Chat input field not found with selector:", chatInputSelector);
-      console.error("Gemini MCP Client: Chat input field not found. Cannot inject dummy prompt."); // Original user-facing
+    if (!chatInputField) {
+        console.error("Gemini MCP Client [ERROR]: Chat input field not found with selector:", chatInputSelector, "for injectAndSendMessage.");
+        return Promise.reject("Chat input field not found.");
     }
+    console.log("Gemini MCP Client [DEBUG]: Found chat input field for injection:", chatInputField);
+
+    // Set text content
+    chatInputField.textContent = textToInject;
+
+    // Dispatch events
+    chatInputField.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+    chatInputField.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+    console.log("Gemini MCP Client [DEBUG]: Text injected and input/change events dispatched.");
+
+    return new Promise((resolve, reject) => {
+        const pollInterval = 500;
+        const pollTimeout = 10000; // 10 seconds
+        let elapsedTime = 0;
+
+        const primarySendSelector = 'button.mat-mdc-icon-button.send-button';
+        const oldPrimarySelector = 'button.send-button.submit[aria-label="Send message"]';
+        const fallbackSendSelectors = [
+            oldPrimarySelector,
+            'button[data-testid="send-button"]',
+            'button[aria-label*="Send" i]',
+            'button[aria-label*="Submit" i]',
+            'button:has(svg[class*="send-icon"])',
+            'button.send-button'
+        ];
+        const allSelectors = [primarySendSelector, ...fallbackSendSelectors];
+
+        console.log("Gemini MCP Client [DEBUG]: Starting polling for send button. Total timeout:", pollTimeout / 1000, "s. Interval:", pollInterval, "ms.");
+
+        const intervalId = setInterval(() => {
+            elapsedTime += pollInterval;
+            let buttonClicked = false;
+
+            for (const selector of allSelectors) {
+                console.log("Gemini MCP Client [DEBUG]: Polling: Attempting selector:", selector);
+                const button = document.querySelector(selector);
+
+                if (button) {
+                    console.log("Gemini MCP Client [DEBUG]: Polling: Button candidate found with selector '" + selector + "'.");
+                    console.log("Gemini MCP Client [DEBUG]:   - outerHTML:", button.outerHTML.substring(0,100) + "...");
+                    console.log("Gemini MCP Client [DEBUG]:   - disabled property:", button.disabled);
+                    console.log("Gemini MCP Client [DEBUG]:   - offsetParent (for visibility):", button.offsetParent);
+                    const computedStyle = window.getComputedStyle(button);
+                    console.log("Gemini MCP Client [DEBUG]:   - computedStyle.display:", computedStyle.display);
+                    console.log("Gemini MCP Client [DEBUG]:   - computedStyle.visibility:", computedStyle.visibility);
+                    console.log("Gemini MCP Client [DEBUG]:   - computedStyle.opacity:", computedStyle.opacity);
+                    console.log("Gemini MCP Client [DEBUG]:   - computedStyle.pointerEvents:", computedStyle.pointerEvents);
+
+                    if (!button.disabled && button.offsetParent !== null) { // Check if visible and not disabled
+                        button.click();
+                        console.log(`Gemini MCP Client [DEBUG]: Send button clicked successfully via polling. Selector: '${selector}'.`);
+                        clearInterval(intervalId);
+                        buttonClicked = true;
+                        resolve(true);
+                        break;
+                    } else {
+                        console.log(`Gemini MCP Client [DEBUG]: Polling: Button found with selector '${selector}', but not clickable (Disabled: ${button.disabled}, Visible: ${button.offsetParent !== null}).`);
+                    }
+                } else {
+                     // console.log("Gemini MCP Client [DEBUG]: Polling: No button found with selector:", selector); // Can be too verbose
+                }
+            } // End of for loop (selectors)
+
+            if (buttonClicked) return; // Already resolved
+
+            if (elapsedTime >= pollTimeout) {
+                console.error("Gemini MCP Client [ERROR]: Timeout: Send button did not become clickable after " + (pollTimeout / 1000) + " seconds.");
+                clearInterval(intervalId);
+                reject(new Error("Timeout: Send button did not become clickable."));
+            } else {
+                console.log("Gemini MCP Client [DEBUG]: Polling: Send button not clickable yet or not found in this attempt, continuing to poll... Elapsed time:", elapsedTime / 1000, "s.");
+            }
+
+        }, pollInterval);
+    });
+}
+
+
+  dummyPromptButton.addEventListener('click', () => {
+    console.log("Gemini MCP Client [DEBUG]: Dummy prompt button clicked.");
+    const dummyMessage = "Test message from MCP Client: Describe the process of photosynthesis.";
+
+    injectAndSendMessage(dummyMessage, false)
+      .then(success => {
+        if (success) {
+          console.log("Gemini MCP Client [DEBUG]: Dummy prompt successfully injected and sent via injectAndSendMessage.");
+        } else {
+          // This case should ideally be handled by the reject part of the promise,
+          // but adding a log here if the promise somehow resolves with false.
+          console.warn("Gemini MCP Client [DEBUG]: injectAndSendMessage resolved with false for dummy prompt.");
+        }
+      })
+      .catch(error => {
+        console.error("Gemini MCP Client [ERROR]: Error sending dummy prompt via injectAndSendMessage:", error.message);
+        // Display original user-facing warning if the more detailed error isn't sufficient
+        console.warn("Gemini MCP Client: No clickable send button found after trying all selectors. Dummy prompt injected but not submitted.");
+      });
   });
 
   const toggleDiv = document.createElement('div');
