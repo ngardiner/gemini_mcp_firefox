@@ -20,19 +20,19 @@ Having experienced this, I propose a solution using Firefox (lower overhead) wit
       * Updating the Browser Extension is complicated when compared to iterating on the Python script
       * Implementing processing logic in JavaScript is not (imho) easier than in Python
    * The Browser Extension should be responsible for:
-      [] Monitoring the DOM and capturing incoming tool requests from Gemini (Phase 1)
+      [x] Monitoring the DOM and capturing incoming tool requests from Gemini (Phase 1)
       [] Recieving responses via Native Messaging from the Python script and sending those back to Gemini automatically (Phase 2)
       [] Injection of prompts which advise Gemini of available tools and how to invoke them (Phase 3)
    * The browser extension should:
-      [] Appear as an icon (any design is fine for Phase 1) in Firefox and provide a UI
-      [] The UI should have a slider/switch to turn the functionality on or off
-      [] The UI should have a button for prompt injection which in Phase 1 should just inject a dummy test message and send it to Gemini
+      [x] Appear as an icon (any design is fine for Phase 1) in Firefox and provide a UI
+      [x] The UI should have a slider/switch to turn the functionality on or off
+      [x] The UI should have a button for prompt injection which in Phase 1 should just inject a dummy test message and send it to Gemini
     
    * Python Script - Interfaces with Browser Extension over Native Messaging.
-      [] Communicates liberally with the user via the most appropriate mean(s) - Browser debug, log file etc at this stage of development. In future, we'll toggle this debugging down/off but for now I'd like positive feedback from the script that it is operating (Phase 1)
-      [] Acts as an MCP Client to the MCP Servers defined in industry-standard JSON configuration (supporting SSE, http streaming and stdio) (Phase 1)
+      [x] Communicates liberally with the user via the most appropriate mean(s) - Browser debug, log file etc at this stage of development. In future, we'll toggle this debugging down/off but for now I'd like positive feedback from the script that it is operating (Phase 1)
+      [x] Acts as an MCP Client to the MCP Servers defined in industry-standard JSON configuration (supporting SSE, http streaming and stdio) (Phase 1)
       [] Does discovery (through tools/list) across all MCP Servers and collates a central tools list to provide to Gemini (Phase 2)
-      [] Does all processing related to the tool calls recieved from Gemini (Phase 1). Note that the processing is based on Gemini's standard tool calling protocol.
+      [x] Does all processing related to the tool calls recieved from Gemini (Phase 1). Note that the processing is based on Gemini's standard tool calling protocol.
       [] Executes the tool calls on the appropriate MCP Server (Phase 2)
       [] Encapsulates the result in the correct Gemini format and sends it back to the Browser Extension (Phase 2)
     
