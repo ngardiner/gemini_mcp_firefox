@@ -57,73 +57,102 @@ function setupUI() {
   dummyPromptButton.style.cursor = 'pointer';
 
   dummyPromptButton.addEventListener('click', () => {
-    const chatInputField = document.querySelector('textarea') || document.querySelector('div[contenteditable="true"]');
+    console.log("Gemini MCP Client [DEBUG]: Dummy prompt button clicked. Starting search for chat input and send button.");
+
+    const chatInputSelector = 'div.ql-editor.textarea.new-input-ui p';
+    console.log("Gemini MCP Client [DEBUG]: Attempting to find chat input with selector:", chatInputSelector);
+    const chatInputField = document.querySelector(chatInputSelector);
+
     if (chatInputField) {
+      console.log("Gemini MCP Client [DEBUG]: Found chat input field:", chatInputField);
       const dummyMessage = "Test message from MCP Client: Describe the process of photosynthesis.";
-      if (chatInputField.tagName === 'TEXTAREA' || chatInputField.tagName === 'INPUT') {
-        chatInputField.value = dummyMessage;
-        chatInputField.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-      } else if (chatInputField.isContentEditable) {
-        chatInputField.textContent = dummyMessage;
-        chatInputField.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-      }
-      console.log("Gemini MCP Client: Injected dummy prompt:", dummyMessage);
 
-      console.log("Gemini MCP Client: Injected dummy prompt:", dummyMessage);
+      // Set text content
+      chatInputField.textContent = dummyMessage;
 
-      // Refined send button selection logic, prioritizing user-provided selector
+      // Dispatch events
+      chatInputField.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      chatInputField.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+      console.log("Gemini MCP Client [DEBUG]: Injected dummy message and dispatched input/change events.");
+
+      // Send button selection logic
       let sendButton = null;
-      const primarySelector = 'button.send-button.submit[aria-label="Send message"]';
-      const fallbackSelectors = [
+      let clickedSuccessfully = false; // Flag to track if click was successful
+
+      // Define selectors with the new primary selector first
+      const newPrimarySendSelector = 'button.mat-mdc-icon-button.send-button';
+      const oldPrimarySelector = 'button.send-button.submit[aria-label="Send message"]'; // Previous primary, now a high-priority fallback
+      const fallbackSendSelectors = [
+        oldPrimarySelector, // Keep the user-provided one high in fallback list
         'button[data-testid="send-button"]',
-        'button[aria-label*="Send" i]',    // Case-insensitive, partial match for "Send"
-        'button[aria-label*="Submit" i]',  // Case-insensitive, partial match for "Submit"
-        'button:has(svg[class*="send-icon"])',
-        'button.send-button'
+        'button[aria-label*="Send" i]',
+        'button[aria-label*="Submit" i]',
+        'button:has(svg[class*="send-icon"])', // Original attempt, class might vary
+        'button.send-button' // A generic class that might be used
       ];
 
       const attemptClick = (button, selectorUsed) => {
+        console.log("Gemini MCP Client [DEBUG]: attemptClick called for button found by selector:", selectorUsed, button);
         if (button && button.offsetParent !== null) { // Check if visible
           if (!button.disabled) {
-            console.log(`Gemini MCP Client: Found send button with selector: "${selectorUsed}". Attempting to click.`, button);
+            console.log(`Gemini MCP Client [DEBUG]: Found send button with selector: "${selectorUsed}". Attempting to click.`, button);
             button.click();
-            console.log("Gemini MCP Client: Clicked send button for dummy prompt.");
+            console.log("Gemini MCP Client [DEBUG]: Click successful for button found by:", selectorUsed);
             return true; // Click successful
           } else {
-            console.warn(`Gemini MCP Client: Send button found with selector: "${selectorUsed}", but it is disabled.`, button);
+            console.warn(`Gemini MCP Client [DEBUG]: Send button found with selector: "${selectorUsed}", but it is disabled.`, button);
             return false; // Found but disabled
           }
+        } else if (button) {
+            console.warn(`Gemini MCP Client [DEBUG]: Send button found with selector: "${selectorUsed}", but it is not visible (offsetParent is null).`, button);
+            return false; // Found but not visible
         }
-        return false; // Not found or not visible
+        return false; // Not found or not visible (button was null)
       };
 
-      // Try primary selector first
-      const primaryButton = document.querySelector(primarySelector);
-      if (attemptClick(primaryButton, primarySelector)) {
-        sendButton = primaryButton; // Mark as found
-      } else {
-        if (primaryButton) { // Found by primary selector but was not clickable (disabled or invisible)
-             console.warn(`Gemini MCP Client: Primary selector "${primarySelector}" found a button, but it was not clickable (disabled or invisible). Trying fallbacks.`);
-        } else {
-            console.log(`Gemini MCP Client: Primary selector "${primarySelector}" did not find the send button. Trying fallbacks.`);
-        }
-        // Try fallback selectors
-        for (const selector of fallbackSelectors) {
-          const fallbackButton = document.querySelector(selector);
-          if (attemptClick(fallbackButton, selector)) {
-            sendButton = fallbackButton; // Mark as found
-            break; // Exit loop once a button is successfully clicked
-          } else if (fallbackButton) { // Found but not clickable
-              console.warn(`Gemini MCP Client: Fallback selector "${selector}" found a button, but it was not clickable (disabled or invisible).`);
+      const trySelectors = (selectorsList) => {
+          for (const selector of selectorsList) {
+              console.log("Gemini MCP Client [DEBUG]: Attempting to find send button with selector:", selector);
+              const button = document.querySelector(selector);
+              if (button) {
+                  console.log("Gemini MCP Client [DEBUG]: Found button candidate with selector '" + selector + "'. outerHTML:", button.outerHTML);
+                  console.log("Gemini MCP Client [DEBUG]: Button innerText:", button.innerText);
+                  console.log("Gemini MCP Client [DEBUG]: Button disabled state:", button.disabled);
+                  console.log("Gemini MCP Client [DEBUG]: Button offsetParent (for visibility):", button.offsetParent);
+                  const computedStyle = window.getComputedStyle(button);
+                  console.log("Gemini MCP Client [DEBUG]: Button computed style - display:", computedStyle.display, "visibility:", computedStyle.visibility, "opacity:", computedStyle.opacity);
+              } else {
+                  console.log("Gemini MCP Client [DEBUG]: No button found with selector:", selector);
+              }
+
+              if (attemptClick(button, selector)) {
+                  sendButton = button; // Assign to outer scope sendButton
+                  return true; // Clicked successfully
+              } else if (button) { // Found but not clickable
+                  console.warn(`Gemini MCP Client [DEBUG]: Selector "${selector}" found a button, but it was not clickable.`);
+              }
           }
-        }
+          return false; // No selector in this list resulted in a click
+      };
+
+      // Try new primary selector first
+      if (trySelectors([newPrimarySendSelector])) {
+          clickedSuccessfully = true;
+      } else {
+          console.log(`Gemini MCP Client [DEBUG]: New primary selector "${newPrimarySendSelector}" did not find a clickable button. Trying other fallbacks.`);
+          if (trySelectors(fallbackSendSelectors)) {
+              clickedSuccessfully = true;
+          }
       }
 
-      if (!sendButton) {
+      if (!clickedSuccessfully) { // Check the flag instead of sendButton directly
+        console.error("Gemini MCP Client [DEBUG]: After all attempts, no clickable send button was found.");
         console.warn("Gemini MCP Client: No clickable send button found after trying all selectors. Dummy prompt injected but not submitted.");
+          }
       }
     } else {
-      console.error("Gemini MCP Client: Chat input field not found for dummy prompt.");
+      console.error("Gemini MCP Client [DEBUG]: Chat input field not found with selector:", chatInputSelector);
+      console.error("Gemini MCP Client: Chat input field not found. Cannot inject dummy prompt."); // Original user-facing
     }
   });
 
@@ -214,88 +243,75 @@ function handleNativeHostResponse(message) {
 browser.runtime.onMessage.addListener(handleNativeHostResponse);
 
 function detectToolCallInMutation(mutation) {
-    mutation.addedNodes.forEach(addedNode => {
+    console.log("Gemini MCP Client [DEBUG]: Mutation observed. Type:", mutation.type);
+    mutation.addedNodes.forEach((addedNode, index) => {
+        if (addedNode.nodeType === Node.ELEMENT_NODE) {
+            console.log(`Gemini MCP Client [DEBUG]: Added node [${index}] outerHTML:`, addedNode.outerHTML.substring(0, 500) + (addedNode.outerHTML.length > 500 ? "..." : ""));
+        } else {
+            console.log(`Gemini MCP Client [DEBUG]: Added node [${index}] (not an element):`, addedNode.nodeName, addedNode.textContent);
+        }
+    });
+
+    mutation.addedNodes.forEach(addedNode => { // Keep original loop for processing
         if (addedNode.nodeType !== Node.ELEMENT_NODE) return;
 
-        // Find all <code-block> elements to search within.
-        // This includes <code-block>s that are children of <response-element>s,
-        // or <code-block>s that might be added directly or within other containers.
         let codeBlocksToSearch = [];
-
-        // Scenario 1: The addedNode itself is a <response-element> or contains them.
         let responseElements = [];
+
         if (addedNode.matches && addedNode.matches('response-element')) {
             responseElements.push(addedNode);
         } else if (addedNode.querySelectorAll) {
-            // Query for response-element children if addedNode is a container
             responseElements.push(...Array.from(addedNode.querySelectorAll('response-element')));
         }
 
         responseElements.forEach(responseElem => {
+            console.log("Gemini MCP Client [DEBUG]: Found <response-element>. outerHTML:", responseElem.outerHTML.substring(0, 500) + (responseElem.outerHTML.length > 500 ? "..." : ""));
             if (responseElem.querySelectorAll) {
                  codeBlocksToSearch.push(...Array.from(responseElem.querySelectorAll('code-block')));
             }
         });
 
-        // Scenario 2: The addedNode itself is a <code-block> or contains them (not nested in a response-element found above).
-        // This handles cases where <code-block> might be added outside a <response-element>,
-        // or if <response-element> was already in DOM and <code-block> is added to it.
         if (addedNode.matches && addedNode.matches('code-block')) {
             codeBlocksToSearch.push(addedNode);
         } else if (addedNode.querySelectorAll) {
-            // Query for code-block children if addedNode is a container and not a response-element itself
-            // (or if response-elements were already handled and we want other code-blocks)
             codeBlocksToSearch.push(...Array.from(addedNode.querySelectorAll('code-block')));
         }
 
-        // Deduplicate codeBlocksToSearch as the same code-block could be found through multiple paths
-        // (e.g. addedNode is response-element, and it also contains a code-block directly).
-        // Using a Set is an efficient way to get unique elements.
         const uniqueCodeBlocks = Array.from(new Set(codeBlocksToSearch));
 
         uniqueCodeBlocks.forEach(codeBlock => {
-            // Check if this code-block has already been processed
+            console.log("Gemini MCP Client [DEBUG]: Processing <code-block>. outerHTML:", codeBlock.outerHTML.substring(0, 500) + (codeBlock.outerHTML.length > 500 ? "..." : ""));
             if (codeBlock.dataset.mcpProcessed === 'true') {
-                // console.log("Gemini MCP Client: Skipping already processed <code-block>:", codeBlock);
-                return; // Use return to skip this iteration of forEach
+                return;
             }
 
-            // Find the <code> element, typically inside <pre>
-            const codeElement = codeBlock.querySelector('pre > code, code'); // Handles if pre is there or not
+            const codeElement = codeBlock.querySelector('pre > code, code');
 
             if (codeElement) {
-                // Prefer textContent for cleaner XML, fallback to innerHTML if textContent is empty/null
+                console.log("Gemini MCP Client [DEBUG]: Found <code> element. textContent:", codeElement.textContent);
+                console.log("Gemini MCP Client [DEBUG]: Found <code> element. innerHTML:", codeElement.innerHTML.substring(0, 500) + (codeElement.innerHTML.length > 500 ? "..." : ""));
+
                 let potentialToolCallText = (codeElement.textContent || codeElement.innerHTML || "").trim();
 
                 if (potentialToolCallText.includes('<function_calls>') || potentialToolCallText.includes('<invoke>')) {
                     console.log("Gemini MCP Client: Found potential tool call XML in <code> element:", potentialToolCallText.substring(0, 200) + "...");
 
-                    // Ensure it's wrapped if it's a single invoke (Python also does this, but good for consistency)
                     if (potentialToolCallText.startsWith('<invoke') && !potentialToolCallText.includes('<function_calls>')) {
                         potentialToolCallText = `<function_calls>${potentialToolCallText}</function_calls>`;
                         console.log("Gemini MCP Client: Wrapped single <invoke> with <function_calls>.");
                     }
 
-                    // call_id from DOM attributes is unlikely here as we are getting content from <code>.
-                    // The actual <invoke> tag with a call_id attribute is part of the string, not a DOM element attribute here.
-                    // Python will parse the call_id from the raw_xml string.
                     const callIdFromDomAttribute = null;
 
+                    console.log("Gemini MCP Client [DEBUG]: Sending to background:", { raw_xml: potentialToolCallText, call_id: callIdFromDomAttribute });
                     sendToolCallToBackground({
                         raw_xml: potentialToolCallText,
-                        call_id: callIdFromDomAttribute // Python will extract the true call_id from raw_xml
+                        call_id: callIdFromDomAttribute
                     });
 
-                    // Mark the code-block as processed to avoid reprocessing its static content.
-                    // This is important if mutations occur around this block but its content is unchanged.
                     codeBlock.dataset.mcpProcessed = 'true';
                     console.log("Gemini MCP Client: Marked <code-block> as processed.", codeBlock);
-
-                } else {
-                    // console.log("Gemini MCP Client: No tool call signature found in <code> content:", codeElement.textContent.substring(0,100));
                 }
-            } else {
-                // console.log("Gemini MCP Client: No <code> element found within <code-block>:", codeBlock);
             }
         });
     });
@@ -348,35 +364,37 @@ function stopObserver() {
 function initializeTargetNodeAndObserver(forceStart = false) {
     // Attempt to find a more specific target node for Gemini's responses.
     // These selectors are common patterns for chat applications.
-    const selectors = [
-        '[role="log"]',                           // ARIA role often used for chat logs
-        '.chat-history',                        // Common class name for chat history container
-        '.message-list-container',              // Another common class name
-        'div[aria-live="polite"]',              // Elements that announce updates
-        'main .chat-area',                      // More specific if 'main' contains a 'chat-area'
-        'main',                                 // General main content area
-        // Add more selectors here if needed based on Gemini's actual DOM structure
+    const targetSelectors = [ // Renamed for clarity in logging
+        '[role="log"]',
+        '.chat-history',
+        '.message-list-container',
+        'div[aria-live="polite"]',
+        'main .chat-area',
+        'main',
     ];
+    console.log("Gemini MCP Client [DEBUG]: Attempting to select targetNode. Candidate selectors:", targetSelectors);
 
     let foundNode = null;
-    for (const selector of selectors) {
+    let usedSelector = "";
+    for (const selector of targetSelectors) {
         foundNode = document.querySelector(selector);
         if (foundNode) {
-            console.log("Gemini MCP Client: Found targetNode with selector:", selector, foundNode);
+            usedSelector = selector;
+            console.log(`Gemini MCP Client [DEBUG]: Successfully selected targetNode with selector: '${usedSelector}'. Observed element:`, foundNode);
             break;
         }
     }
 
-    targetNode = foundNode || document.body; // Fallback to document.body if no specific selector matches
+    targetNode = foundNode || document.body;
 
-    if (targetNode === document.body) {
-        console.warn("Gemini MCP Client: Using document.body as fallback targetNode for MutationObserver. This might be inefficient. A more specific selector is recommended for Gemini's response area.");
-    } else {
-        console.log("Gemini MCP Client: Target node for MutationObserver set to:", targetNode);
+    if (targetNode === document.body && !foundNode) { // Only log fallback if no specific node was found
+        console.warn("Gemini MCP Client [DEBUG]: Falling back to document.body for targetNode. This may be inefficient.");
+    } else if (foundNode) { // Log the successfully chosen specific node (already done above)
+        // console.log("Gemini MCP Client: Target node for MutationObserver set to:", targetNode); // Redundant due to log above
     }
 
+
     if (targetNode) {
-        // console.log("Gemini MCP Client: Target node for MutationObserver set to:", targetNode); // Already logged above with more context
         if (isMcpClientEnabled || forceStart) {
             startObserver();
         }
