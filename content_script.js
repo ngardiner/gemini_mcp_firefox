@@ -178,8 +178,10 @@ function handleBackgroundMessages(message) {
             console.error("Gemini MCP Client [ERROR]: Error injecting native host response via injectAndSendMessage:", error.message);
         });
   } else if (message.type === "PROMPT_FROM_NATIVE_HOST" && message.payload && message.payload.prompt) {
-    console.log("Gemini MCP Client [DEBUG]: Received prompt from native host:", message.payload.prompt);
+    console.log("Gemini MCP Client [DEBUG]: PROMPT_FROM_NATIVE_HOST received in content_script:", message); // Added per requirement
     const promptToInject = message.payload.prompt;
+    console.log("Gemini MCP Client [DEBUG]: Extracted prompt:", promptToInject); // Confirming extraction
+    console.log("Gemini MCP Client [DEBUG]: About to call injectAndSendMessage with prompt:", promptToInject); // Added per requirement
     injectAndSendMessage(promptToInject, false) // isToolResult is false for prompts
         .then(success => {
             if (success) {
