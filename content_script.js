@@ -5,57 +5,6 @@ let isMcpClientEnabled = true;
 let observer = null; // Will be initialized later
 let targetNode = null; // Will be set later
 
-// Function to create and inject UI elements
-function setupUI() {
-  const uiContainer = document.createElement('div');
-  uiContainer.id = 'mcp-client-ui-container';
-  uiContainer.style.position = 'fixed';
-  uiContainer.style.top = '10px';
-  uiContainer.style.right = '10px';
-  uiContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
-  uiContainer.style.padding = '10px';
-  uiContainer.style.border = '1px solid #ccc';
-  uiContainer.style.borderRadius = '5px';
-  uiContainer.style.zIndex = '9999';
-  uiContainer.style.fontFamily = 'Arial, sans-serif';
-  uiContainer.style.fontSize = '14px';
-  uiContainer.style.color = '#333';
-
-  // Toggle Switch
-  const toggleLabel = document.createElement('label');
-  toggleLabel.htmlFor = 'mcp-client-toggle';
-  toggleLabel.textContent = 'Enable MCP Client: ';
-  toggleLabel.style.marginRight = '5px';
-
-  const toggleSwitch = document.createElement('input');
-  toggleSwitch.type = 'checkbox';
-  toggleSwitch.id = 'mcp-client-toggle';
-  toggleSwitch.checked = isMcpClientEnabled;
-  toggleSwitch.style.verticalAlign = 'middle';
-
-  toggleSwitch.addEventListener('change', () => {
-    isMcpClientEnabled = toggleSwitch.checked;
-    console.log(`Gemini MCP Client ${isMcpClientEnabled ? 'enabled' : 'disabled'}`);
-    if (isMcpClientEnabled) {
-      startObserver();
-    } else {
-      stopObserver();
-    }
-  });
-
-  // Dummy Prompt Button
-  const dummyPromptButton = document.createElement('button');
-  dummyPromptButton.id = 'mcp-inject-dummy-prompt';
-  dummyPromptButton.textContent = 'Inject Prompt'; // Changed textContent
-  dummyPromptButton.style.marginTop = '10px';
-  dummyPromptButton.style.display = 'block';
-  dummyPromptButton.style.padding = '5px 10px';
-  dummyPromptButton.style.border = '1px solid #007bff';
-  dummyPromptButton.style.backgroundColor = '#007bff';
-  dummyPromptButton.style.color = 'white';
-  dummyPromptButton.style.borderRadius = '3px';
-  dummyPromptButton.style.cursor = 'pointer';
-
 // Function to inject text and send the message using polling for the send button
 async function injectAndSendMessage(textToInject, isToolResult = false) {
     console.log(`Gemini MCP Client [DEBUG]: injectAndSendMessage called. isToolResult: ${isToolResult}, text: "${textToInject.substring(0, 50)}..."`);
@@ -126,30 +75,6 @@ async function injectAndSendMessage(textToInject, isToolResult = false) {
     });
 }
 
-
-  dummyPromptButton.addEventListener('click', () => {
-    console.log("Gemini MCP Client [DEBUG]: Inject prompt button clicked. Requesting prompt from background script.");
-    // Send message to background script to request a prompt
-    chrome.runtime.sendMessage({ type: "GET_PROMPT" })
-      .then(response => {
-        console.log("Gemini MCP Client [DEBUG]: Response from background script for GET_PROMPT:", response);
-      })
-      .catch(error => {
-        console.error("Gemini MCP Client [ERROR]: Error sending GET_PROMPT message to background script:", error);
-      });
-  });
-
-  const toggleDiv = document.createElement('div');
-  toggleDiv.appendChild(toggleLabel);
-  toggleDiv.appendChild(toggleSwitch);
-
-  uiContainer.appendChild(toggleDiv);
-  uiContainer.appendChild(dummyPromptButton);
-  document.body.appendChild(uiContainer);
-  console.log("Gemini MCP Client: UI elements injected.");
-}
-
-
 // Function to send tool call to background script
 function sendToolCallToBackground(toolCallData) {
   console.log("Gemini MCP Client [TOOL-DETECT]: Sending to background:", toolCallData);
@@ -161,6 +86,43 @@ function sendToolCallToBackground(toolCallData) {
   }).catch(error => {
     console.error("Error sending message to background script:", error);
   });
+}
+
+// Helper function to process a found <code> element for tool calls
+function handleFoundCodeElement(codeElement, sourceType) {
+    if (!codeElement || codeElement.dataset.mcpProcessed === 'true') {
+        // console.log(`[TOOL-DETECT]: Skipping already processed <code> element from ${sourceType} or invalid element.`);
+        return;
+    }
+
+    console.log(`Gemini MCP Client [TOOL-DETECT]: Candidate <code> element found. Checking content... Class: ${codeElement.className}, ID: ${codeElement.id}, Source: ${sourceType}`);
+    const rawXml = codeElement.textContent ? codeElement.textContent.trim() : "";
+
+    if (rawXml.includes("function_calls")) {
+        console.warn(`Gemini MCP Client [TOOL-DETECT]: !!! function_calls STRING FOUND in textContent !!! Class: ${codeElement.className}, ID: ${codeElement.id}, Source: ${sourceType}`);
+        console.log(`Gemini MCP Client [TOOL-DETECT]: Extracted rawXml (sample): ${rawXml.substring(0, 200)}...`);
+        console.log("[TOOL-DETECT]: Assuming textContent has decoded HTML entities like &lt; if they were present.");
+
+        if (!rawXml.startsWith("<")) {
+            console.warn("Gemini MCP Client [TOOL-DETECT]: Extracted textContent does not start with '<', might not be valid XML for tool call:", rawXml.substring(0,100) + "...");
+        }
+
+        let extractedCallId = null;
+        if (codeElement.dataset.callId) {
+            extractedCallId = codeElement.dataset.callId;
+            console.log(`Gemini MCP Client [TOOL-DETECT]: Found call_id on element: ${extractedCallId}`);
+        } else if (codeElement.parentElement && codeElement.parentElement.dataset.callId) {
+            extractedCallId = codeElement.parentElement.dataset.callId;
+            console.log(`Gemini MCP Client [TOOL-DETECT]: Found call_id on parentElement: ${extractedCallId}`);
+        }
+
+        sendToolCallToBackground({ raw_xml: rawXml, call_id: extractedCallId });
+
+        codeElement.dataset.mcpProcessed = 'true'; // Re-enabled
+        console.log(`Gemini MCP Client [TOOL-DETECT]: Marked <code> element as processed. Class: ${codeElement.className}, ID: ${codeElement.id}`);
+    } else {
+        // console.log(`Gemini MCP Client [TOOL-DETECT]: "function_calls" string NOT found in textContent of: Class: ${codeElement.className}, ID: ${codeElement.id}, textContent (sample): ${rawXml.substring(0,100)}...`);
+    }
 }
 
 // Function to handle responses from the background script (coming from native host or for prompts)
@@ -204,45 +166,80 @@ function handleBackgroundMessages(message) {
   }
 }
 
-// Listen for messages from the background script
-browser.runtime.onMessage.addListener(handleBackgroundMessages); // Renamed listener function for clarity
+// Function to create and inject UI elements
+function setupUI() {
+  const uiContainer = document.createElement('div');
+  uiContainer.id = 'mcp-client-ui-container';
+  uiContainer.style.position = 'fixed';
+  uiContainer.style.top = '10px';
+  uiContainer.style.right = '10px';
+  uiContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+  uiContainer.style.padding = '10px';
+  uiContainer.style.border = '1px solid #ccc';
+  uiContainer.style.borderRadius = '5px';
+  uiContainer.style.zIndex = '9999';
+  uiContainer.style.fontFamily = 'Arial, sans-serif';
+  uiContainer.style.fontSize = '14px';
+  uiContainer.style.color = '#333';
 
-// Helper function to process a found <code> element for tool calls
-function handleFoundCodeElement(codeElement, sourceType) {
-    if (!codeElement || codeElement.dataset.mcpProcessed === 'true') {
-        // console.log(`[TOOL-DETECT]: Skipping already processed <code> element from ${sourceType} or invalid element.`);
-        return;
-    }
+  // Toggle Switch
+  const toggleLabel = document.createElement('label');
+  toggleLabel.htmlFor = 'mcp-client-toggle';
+  toggleLabel.textContent = 'Enable MCP Client: ';
+  toggleLabel.style.marginRight = '5px';
 
-    console.log(`Gemini MCP Client [TOOL-DETECT]: Candidate <code> element found. Checking content... Class: ${codeElement.className}, ID: ${codeElement.id}, Source: ${sourceType}`);
-    const rawXml = codeElement.textContent ? codeElement.textContent.trim() : "";
+  const toggleSwitch = document.createElement('input');
+  toggleSwitch.type = 'checkbox';
+  toggleSwitch.id = 'mcp-client-toggle';
+  toggleSwitch.checked = isMcpClientEnabled;
+  toggleSwitch.style.verticalAlign = 'middle';
 
-    if (rawXml.includes("function_calls")) {
-        console.warn(`Gemini MCP Client [TOOL-DETECT]: !!! function_calls STRING FOUND in textContent !!! Class: ${codeElement.className}, ID: ${codeElement.id}, Source: ${sourceType}`);
-        console.log(`Gemini MCP Client [TOOL-DETECT]: Extracted rawXml (sample): ${rawXml.substring(0, 200)}...`);
-        console.log("[TOOL-DETECT]: Assuming textContent has decoded HTML entities like &lt; if they were present.");
-
-        if (!rawXml.startsWith("<")) {
-            console.warn("Gemini MCP Client [TOOL-DETECT]: Extracted textContent does not start with '<', might not be valid XML for tool call:", rawXml.substring(0,100) + "...");
-        }
-
-        let extractedCallId = null;
-        if (codeElement.dataset.callId) {
-            extractedCallId = codeElement.dataset.callId;
-            console.log(`Gemini MCP Client [TOOL-DETECT]: Found call_id on element: ${extractedCallId}`);
-        } else if (codeElement.parentElement && codeElement.parentElement.dataset.callId) {
-            extractedCallId = codeElement.parentElement.dataset.callId;
-            console.log(`Gemini MCP Client [TOOL-DETECT]: Found call_id on parentElement: ${extractedCallId}`);
-        }
-
-        sendToolCallToBackground({ raw_xml: rawXml, call_id: extractedCallId });
-
-        codeElement.dataset.mcpProcessed = 'true'; // Re-enabled
-        console.log(`Gemini MCP Client [TOOL-DETECT]: Marked <code> element as processed. Class: ${codeElement.className}, ID: ${codeElement.id}`);
+  toggleSwitch.addEventListener('change', () => {
+    isMcpClientEnabled = toggleSwitch.checked;
+    console.log(`Gemini MCP Client ${isMcpClientEnabled ? 'enabled' : 'disabled'}`);
+    if (isMcpClientEnabled) {
+      startObserver(); // Depends on startObserver being defined
     } else {
-        // console.log(`Gemini MCP Client [TOOL-DETECT]: "function_calls" string NOT found in textContent of: Class: ${codeElement.className}, ID: ${codeElement.id}, textContent (sample): ${rawXml.substring(0,100)}...`);
+      stopObserver(); // Depends on stopObserver being defined
     }
+  });
+
+  // Dummy Prompt Button
+  const dummyPromptButton = document.createElement('button');
+  dummyPromptButton.id = 'mcp-inject-dummy-prompt';
+  dummyPromptButton.textContent = 'Inject Prompt'; // Changed textContent
+  dummyPromptButton.style.marginTop = '10px';
+  dummyPromptButton.style.display = 'block';
+  dummyPromptButton.style.padding = '5px 10px';
+  dummyPromptButton.style.border = '1px solid #007bff';
+  dummyPromptButton.style.backgroundColor = '#007bff';
+  dummyPromptButton.style.color = 'white';
+  dummyPromptButton.style.borderRadius = '3px';
+  dummyPromptButton.style.cursor = 'pointer';
+
+  dummyPromptButton.addEventListener('click', () => {
+    console.log("Gemini MCP Client [DEBUG]: Inject prompt button clicked. Requesting prompt from background script.");
+    // Send message to background script to request a prompt
+    chrome.runtime.sendMessage({ type: "GET_PROMPT" }) // chrome namespace here, browser for listener. Keep as is.
+      .then(response => {
+        console.log("Gemini MCP Client [DEBUG]: Response from background script for GET_PROMPT:", response);
+      })
+      .catch(error => {
+        console.error("Gemini MCP Client [ERROR]: Error sending GET_PROMPT message to background script:", error);
+      });
+  });
+
+  const toggleDiv = document.createElement('div');
+  toggleDiv.appendChild(toggleLabel);
+  toggleDiv.appendChild(toggleSwitch);
+
+  uiContainer.appendChild(toggleDiv);
+  uiContainer.appendChild(dummyPromptButton);
+  document.body.appendChild(uiContainer);
+  console.log("Gemini MCP Client: UI elements injected.");
 }
+
+// --- MutationObserver Related Functions ---
 
 // Final MutationObserver callback for processing tool calls
 function finalProcessMutations(mutationsList, _observer) {
@@ -308,11 +305,11 @@ function startObserver() {
         console.log("Gemini MCP Client [TOOL-DETECT]: MutationObserver started/restarted. Target:", targetNode, "Options:", observerOptions);
     } catch (e) {
         console.error("Gemini MCP Client [ERROR]: Error starting MutationObserver:", e);
-        initializeTargetNodeAndObserver(true);
+        initializeTargetNodeAndObserver(true); // Depends on initializeTargetNodeAndObserver
     }
   } else if (!targetNode) {
     console.error("Gemini MCP Client [ERROR]: Target node not available for observer. Attempting to re-initialize.");
-    initializeTargetNodeAndObserver(true);
+    initializeTargetNodeAndObserver(true); // Depends on initializeTargetNodeAndObserver
   }
 }
 
@@ -342,17 +339,22 @@ function initializeTargetNodeAndObserver(forceStart = false) {
 
     if (targetNode) {
         if (isMcpClientEnabled || forceStart) {
-            startObserver();
+            startObserver(); // Depends on startObserver
         }
     } else {
         console.error("Gemini MCP Client [ERROR]: Target node for MutationObserver could not be set (even to document.body).");
      }
  }
 
- // Initial setup
- setupUI(); // Create and inject UI elements
+// --- Event Listeners and Initial Calls ---
 
- // Initialize and start the observer after UI is ready and DOM might be more stable
- setTimeout(() => {
-     initializeTargetNodeAndObserver(true);
+// Listen for messages from the background script
+browser.runtime.onMessage.addListener(handleBackgroundMessages); // handleBackgroundMessages must be defined
+
+// Initial setup
+setupUI(); // setupUI must be defined, and it calls startObserver/stopObserver
+
+// Initialize and start the observer after UI is ready and DOM might be more stable
+setTimeout(() => {
+     initializeTargetNodeAndObserver(true); // initializeTargetNodeAndObserver must be defined
  }, 1000);
