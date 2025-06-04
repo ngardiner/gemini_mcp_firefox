@@ -182,15 +182,21 @@ function handleBackgroundMessages(message) {
     const promptToInject = message.payload.prompt;
     console.log("Gemini MCP Client [DEBUG]: Extracted prompt:", promptToInject); // Confirming extraction
     console.log("Gemini MCP Client [DEBUG]: About to call injectAndSendMessage with prompt:", promptToInject); // Added per requirement
-    injectAndSendMessage(promptToInject, false) // isToolResult is false for prompts
-        .then(success => {
-            if (success) {
-                console.log("Gemini MCP Client [DEBUG]: Successfully injected and sent prompt from native host via injectAndSendMessage.");
-            }
-        })
-        .catch(error => {
-            console.error("Gemini MCP Client [ERROR]: Error injecting prompt from native host via injectAndSendMessage:", error.message);
-        });
+    try {
+      injectAndSendMessage(promptToInject, false) // isToolResult is false for prompts
+          .then(success => {
+              if (success) {
+                  console.log("Gemini MCP Client [DEBUG]: Successfully injected and sent prompt from native host via injectAndSendMessage.");
+              }
+          })
+          .catch(error => {
+              // This catches errors from the promise returned by injectAndSendMessage (e.g., async errors, rejections)
+              console.error("Gemini MCP Client [ERROR]: Error injecting prompt from native host via injectAndSendMessage (async):", error.message, error);
+          });
+    } catch (e) {
+      // This catches synchronous errors that might occur when injectAndSendMessage is called, before a promise is returned.
+      console.error("Gemini MCP Client [CONTENT_SCRIPT_ERROR]: Synchronous error during injectAndSendMessage call for prompt:", e, e.message, e.stack);
+    }
   } else if (message.type === "FROM_NATIVE_HOST") {
     console.warn("Gemini MCP Client [DEBUG]: Received FROM_NATIVE_HOST message but no text_response found.", message.payload);
   } else if (message.type === "PROMPT_FROM_NATIVE_HOST") {
