@@ -40,23 +40,112 @@ Setting up this extension involves two main parts: loading the Firefox extension
 This is the more complex part and requires careful setup. The extension needs to communicate with the `mcp_native_host.py` script.
 
    a. **Install Python:**
-      *   Ensure you have Python 3 installed. You can download it from [python.org](https://www.python.org/).
-      *   Verify it's in your system's PATH.
+      *   Ensure you have Python 3 installed (Python 3.7+ recommended). You can download it from [python.org](https://www.python.org/).
+      *   Verify it's in your system's PATH. This is a prerequisite for creating virtual environments.
 
-   b. **Dependencies:**
-      The `mcp_native_host.py` script now relies on the `fastmcp` library (hypothetical, for this project) to communicate with MCP servers. If this were a real library, you would install it, for example:
-      ```bash
-      pip install fastmcp
-      ```
-      Since `fastmcp` is hypothetical for this project, the script includes an internal mock for basic structural execution if the library is not found. This allows the script to run for development and testing of other features, but it will not perform real tool discovery without the actual library.
+   b. **Using a Python Virtual Environment (Recommended):**
+      Using a virtual environment (`venv`) is highly recommended to manage dependencies for the Python script without affecting your global Python installation.
+
+      1.  **Install Python:** (As mentioned above, Python 3 is required).
+
+      2.  **Create a Virtual Environment:**
+          *   Navigate to your project directory (where you have `mcp_native_host.py`).
+          *   Run the following command:
+              ```bash
+              python3 -m venv venv
+              ```
+              (On Windows, you might use `python -m venv venv`)
+          *   This creates a new directory named `venv` inside your project folder, containing the Python interpreter and libraries for this isolated environment.
+
+      3.  **Activate the Virtual Environment:**
+          *   **Linux/macOS:**
+              ```bash
+              source venv/bin/activate
+              ```
+          *   **Windows (cmd.exe):**
+              ```batch
+              venv\Scripts\activate.bat
+              ```
+          *   **Windows (PowerShell):**
+              ```powershell
+              .\venv\Scripts\Activate.ps1
+              ```
+          *   Your terminal prompt should change (e.g., prefix with `(venv)`) to indicate the virtual environment is active.
+
+      4.  **Install Dependencies (e.g., `fastmcp`):**
+          *   With the virtual environment active, install necessary packages using `pip`. The `mcp_native_host.py` script relies on the `fastmcp` library (hypothetical for this project, but demonstrates dependency management).
+              ```bash
+              pip install fastmcp
+              ```
+          *   Packages installed this way are only available within this virtual environment, keeping your global Python clean.
+          *   Since `fastmcp` is hypothetical for this project, the script includes an internal mock if the library is not found. This allows the script to run for development, but it won't perform real tool discovery without the actual library.
+
+      5.  **Configuring Firefox for the Virtual Environment:**
+          For Firefox to correctly run `mcp_native_host.py` using the Python interpreter and packages from your virtual environment, the native messaging manifest file (`mcp_native_host.json`) must point to an executable that uses this venv. The most robust way to achieve this is with a wrapper script.
+
+          *   **Create a Wrapper Script:**
+              Place this script in the same directory as `mcp_native_host.py`.
+
+              *   **`run_native_host.sh` (for Linux/macOS):**
+                  ```bash
+                  #!/bin/bash
+                  # Get the directory where the script itself is located
+                  DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+                  # Path to venv Python interpreter
+                  VENV_PYTHON="$DIR/venv/bin/python"
+
+                  # Path to the target Python script
+                  PYTHON_SCRIPT="$DIR/mcp_native_host.py"
+
+                  # Activate venv (optional if directly calling venv python, but good for consistency)
+                  # source "$DIR/venv/bin/activate"
+
+                  # Execute the Python script with the venv's interpreter
+                  exec "$VENV_PYTHON" "$PYTHON_SCRIPT"
+                  ```
+                  Make it executable: `chmod +x run_native_host.sh`
+
+              *   **`run_native_host.bat` (for Windows):**
+                  ```batch
+                  @echo off
+                  REM Get the directory where the script itself is located
+                  SET SCRIPT_DIR=%~dp0
+
+                  REM Path to venv Python interpreter
+                  SET VENV_PYTHON="%SCRIPT_DIR%venv\Scripts\python.exe"
+
+                  REM Path to the target Python script
+                  SET PYTHON_SCRIPT="%SCRIPT_DIR%mcp_native_host.py"
+
+                  REM Activate venv (optional if directly calling venv python)
+                  REM CALL "%SCRIPT_DIR%venv\Scripts\activate.bat"
+
+                  REM Execute the Python script with the venv's interpreter
+                  %VENV_PYTHON% %PYTHON_SCRIPT%
+                  ```
+
+          *   **Update `mcp_native_host.json`:**
+              The `"path"` field in your `mcp_native_host.json` (the one you place in Firefox's native-messaging-hosts directory) must now be the **absolute path** to this new wrapper script.
+              For example:
+                - Linux/macOS: `"path": "/path/to/your/project/run_native_host.sh"`
+                - Windows: `"path": "C:\\path\\to\\your\\project\\run_native_host.bat"` (use double backslashes)
+
+          *   **Why this is important:** This ensures that when Firefox launches your native host, it uses the Python interpreter from your virtual environment, which has access to `fastmcp` and any other packages you installed there.
+
+      6.  **Deactivating the Virtual Environment:**
+          *   When you're done working in your terminal session, you can deactivate the venv:
+              ```bash
+              deactivate
+              ```
 
    c. **Prepare the Python Script (`mcp_native_host.py`):**
       *   This script is included in the repository.
-      *   **On Linux/macOS:** Make it executable: `chmod +x /path/to/your/mcp_native_host.py`
-      *   Ensure it has the correct shebang line at the top: `#!/usr/bin/env python3` (or your Python 3 path).
-      *   Place this script in a known location. For example, you can place it in the same directory where you will put the native messaging host manifest file (see next step), or another directory of your choice.
+      *   **On Linux/macOS:** Make it executable: `chmod +x /path/to/your/mcp_native_host.py`. This is good practice even if using a wrapper script.
+      *   Ensure it has the correct shebang line at the top: `#!/usr/bin/env python3`. This is mainly relevant if you were to run the script directly or use Method 1 for venv configuration (not detailed here but mentioned in earlier discussions). With the wrapper script method, the wrapper explicitly calls the venv's Python.
+      *   Place this script in a known location (e.g., your project directory).
 
-   c. **Configure and Register the Native Messaging Host Manifest (`mcp_native_host.json`):**
+   d. **Configure and Register the Native Messaging Host Manifest (`mcp_native_host.json`):**
       This JSON file tells Firefox where to find your Python script and which extension can talk to it. The manifest file is named `mcp_native_host.json` in the repository.
       *   **Edit `mcp_native_host.json`:**
           The provided `mcp_native_host.json` has a `"path"` field:
@@ -71,12 +160,17 @@ This is the more complex part and requires careful setup. The extension needs to
             ]
           }
           ```
-          You **MUST** update the `"path"` value in `mcp_native_host.json` to be the **absolute path** to your `mcp_native_host.py` script.
-          For example:
-            - Windows: `"path": "C:\\Users\\YourName\\path\\to\\mcp_native_host.py"` (use double backslashes) or you might need to invoke python directly like `"path": "C:\\Path\\To\\Python\\python.exe", "C:\\Users\\YourName\\path\\to\\mcp_native_host.py"`. Simpler is often a .bat wrapper.
-            - Linux/macOS: `"path": "/home/yourname/path/to/mcp_native_host.py"`
+          You **MUST** update the `"path"` value in `mcp_native_host.json` to be the **absolute path** to your Python script *or preferably, the wrapper script* (`run_native_host.sh` or `run_native_host.bat`) as described in the "Using a Python Virtual Environment" section.
 
-      *   **Place the (potentially edited) `mcp_native_host.json` from your repository into the correct Firefox directory. The file *in that browser directory* must be named `mcp_native_host.json` (matching the `"name"` field within the JSON content). Ensure the `path` field inside this JSON file correctly points to your `mcp_native_host.py` script.**
+          If using the recommended wrapper script method:
+            - Windows: `"path": "C:\\Users\\YourName\\path\\to\\project\\run_native_host.bat"`
+            - Linux/macOS: `"path": "/home/yourname/path/to/project/run_native_host.sh"`
+
+          If you are *not* using a virtual environment or a wrapper script (not recommended for managing dependencies like `fastmcp`):
+            - Windows: `"path": "C:\\Users\\YourName\\path\\to\\mcp_native_host.py"` (ensure Python is in PATH or provide absolute path to python.exe and script as argument if supported, though a .bat wrapper is more reliable).
+            - Linux/macOS: `"path": "/home/yourname/path/to/mcp_native_host.py"` (ensure script is executable and shebang is correct).
+
+      *   **Place the (potentially edited) `mcp_native_host.json` from your repository into the correct Firefox directory. The file *in that browser directory* must be named `mcp_native_host.json` (matching the `"name"` field within the JSON content). Ensure the `path` field inside this JSON file correctly points to your executable script or wrapper.**
           *   **Windows:**
               1. Open Registry Editor (`regedit`).
               2. Navigate to `HKEY_CURRENT_USER\Software\Mozilla\NativeMessagingHosts\`. If `Mozilla` or `NativeMessagingHosts` doesn't exist, create the key(s).

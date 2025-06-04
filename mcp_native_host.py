@@ -525,6 +525,23 @@ def main():
                 if tab_id:
                     send_message({"tabId": tab_id, "payload": {"type": "PONG", "message": "Python host says PONG!"}})
 
+            elif message_type == "REQUEST_PROMPT":
+                print_debug(f"Received REQUEST_PROMPT message. Tab ID: {tab_id}")
+                # Ensure tab_id is present, though background.js should always send it
+                if tab_id is None:
+                    print_debug("Error: REQUEST_PROMPT received without a tabId. Cannot respond.")
+                else:
+                    dummy_prompt = "Test message from MCP Client: Describe the process of photosynthesis."
+                    response_message = {
+                        "tabId": tab_id,
+                        "payload": {
+                            "type": "PROMPT_RESPONSE",
+                            "prompt": dummy_prompt
+                        }
+                    }
+                    send_message(response_message)
+                    print_debug(f"Sent PROMPT_RESPONSE with dummy prompt to tabId: {tab_id}")
+
 
         except EOFError: print_debug("EOF encountered, stdin closed. Exiting."); break
         except Exception as e:
