@@ -46,7 +46,7 @@ function setupUI() {
   // Dummy Prompt Button
   const dummyPromptButton = document.createElement('button');
   dummyPromptButton.id = 'mcp-inject-dummy-prompt';
-  dummyPromptButton.textContent = 'Inject Dummy Prompt';
+  dummyPromptButton.textContent = 'Inject Prompt'; // Changed textContent
   dummyPromptButton.style.marginTop = '10px';
   dummyPromptButton.style.display = 'block';
   dummyPromptButton.style.padding = '5px 10px';
@@ -128,17 +128,14 @@ async function injectAndSendMessage(textToInject, isToolResult = false) {
 
 
   dummyPromptButton.addEventListener('click', () => {
-    console.log("Gemini MCP Client [DEBUG]: Dummy prompt button clicked.");
-    const dummyMessage = "Test message from MCP Client: Describe the process of photosynthesis.";
-
-    injectAndSendMessage(dummyMessage, false)
-      .then(success => {
-        if (success) {
-          console.log("Gemini MCP Client [DEBUG]: Dummy prompt successfully injected and sent via injectAndSendMessage.");
-        }
+    console.log("Gemini MCP Client [DEBUG]: Inject prompt button clicked. Requesting prompt from background script.");
+    // Send message to background script to request a prompt
+    chrome.runtime.sendMessage({ type: "GET_PROMPT" })
+      .then(response => {
+        console.log("Gemini MCP Client [DEBUG]: Response from background script for GET_PROMPT:", response);
       })
       .catch(error => {
-        console.error("Gemini MCP Client [ERROR]: Error sending dummy prompt via injectAndSendMessage:", error.message);
+        console.error("Gemini MCP Client [ERROR]: Error sending GET_PROMPT message to background script:", error);
       });
   });
 
@@ -166,28 +163,41 @@ function sendToolCallToBackground(toolCallData) {
   });
 }
 
-// Function to handle responses from the background script (coming from native host)
-function handleNativeHostResponse(message) {
-  if (message.type === "FROM_NATIVE_HOST" && message.payload) {
-    console.log("Gemini MCP Client [DEBUG]: Received message from native host for potential injection:", message.payload);
-    if (message.payload.text_response) {
-        injectAndSendMessage(message.payload.text_response, true)
-            .then(success => {
-                if (success) {
-                    console.log("Gemini MCP Client [DEBUG]: Successfully injected and sent native host response via injectAndSendMessage.");
-                }
-            })
-            .catch(error => {
-                console.error("Gemini MCP Client [ERROR]: Error injecting native host response via injectAndSendMessage:", error.message);
-            });
-    } else {
-        console.warn("Gemini MCP Client [DEBUG]: No text_response found in message from native host.", message.payload);
-    }
+// Function to handle responses from the background script (coming from native host or for prompts)
+function handleBackgroundMessages(message) {
+  console.log("Gemini MCP Client [DEBUG]: Received message from background script:", message);
+  if (message.type === "FROM_NATIVE_HOST" && message.payload && message.payload.text_response) {
+    console.log("Gemini MCP Client [DEBUG]: Received text_response from native host for injection:", message.payload.text_response);
+    injectAndSendMessage(message.payload.text_response, true) // isToolResult is true for native host responses
+        .then(success => {
+            if (success) {
+                console.log("Gemini MCP Client [DEBUG]: Successfully injected and sent native host response via injectAndSendMessage.");
+            }
+        })
+        .catch(error => {
+            console.error("Gemini MCP Client [ERROR]: Error injecting native host response via injectAndSendMessage:", error.message);
+        });
+  } else if (message.type === "PROMPT_FROM_NATIVE_HOST" && message.payload && message.payload.prompt) {
+    console.log("Gemini MCP Client [DEBUG]: Received prompt from native host:", message.payload.prompt);
+    const promptToInject = message.payload.prompt;
+    injectAndSendMessage(promptToInject, false) // isToolResult is false for prompts
+        .then(success => {
+            if (success) {
+                console.log("Gemini MCP Client [DEBUG]: Successfully injected and sent prompt from native host via injectAndSendMessage.");
+            }
+        })
+        .catch(error => {
+            console.error("Gemini MCP Client [ERROR]: Error injecting prompt from native host via injectAndSendMessage:", error.message);
+        });
+  } else if (message.type === "FROM_NATIVE_HOST") {
+    console.warn("Gemini MCP Client [DEBUG]: Received FROM_NATIVE_HOST message but no text_response found.", message.payload);
+  } else if (message.type === "PROMPT_FROM_NATIVE_HOST") {
+    console.warn("Gemini MCP Client [DEBUG]: Received PROMPT_FROM_NATIVE_HOST message but no prompt found.", message.payload);
   }
 }
 
 // Listen for messages from the background script
-browser.runtime.onMessage.addListener(handleNativeHostResponse);
+browser.runtime.onMessage.addListener(handleBackgroundMessages); // Renamed listener function for clarity
 
 // Helper function to process a found <code> element for tool calls
 function handleFoundCodeElement(codeElement, sourceType) {

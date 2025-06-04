@@ -39,17 +39,33 @@ function connectToNativeHost() {
 
     port.onMessage.addListener((response) => {
       console.log("Received from native host:", response);
-      // Forward the response to the appropriate content script
-      // We need the tabId to send it to the correct content script.
-      // The content script should pass its tabId when sending the initial message,
-      // or we can try to get the active tab.
-      if (response.tabId) {
+
+      if (response.payload && response.payload.type === "PROMPT_RESPONSE") {
+        console.log("Background: Received PROMPT_RESPONSE from native host:", response);
+        if (response.tabId && response.payload.prompt) {
+          browser.tabs.sendMessage(response.tabId, {
+            type: "PROMPT_FROM_NATIVE_HOST",
+            payload: { prompt: response.payload.prompt }
+          }).then(() => {
+            console.log(`Background: PROMPT_FROM_NATIVE_HOST message sent to tab ${response.tabId}`);
+          }).catch(err => {
+            console.error(`Background: Error sending PROMPT_FROM_NATIVE_HOST message to tab ${response.tabId}:`, err);
+          });
+        } else {
+          console.warn("Background: Malformed PROMPT_RESPONSE from native host. Missing tabId or prompt.", response);
+        }
+      } else if (response.tabId && response.payload) { // Existing handling for other messages like tool results
+        console.log("Background: Received other message from native host with tabId:", response);
         browser.tabs.sendMessage(response.tabId, {
-          type: "FROM_NATIVE_HOST",
+          type: "FROM_NATIVE_HOST", // Generic type for other native host responses
           payload: response.payload
-        }).catch(err => console.error("Error sending message to content script:", err));
+        }).then(() => {
+            console.log(`Background: FROM_NATIVE_HOST message sent to tab ${response.tabId}`);
+        }).catch(err => {
+            console.error(`Background: Error sending FROM_NATIVE_HOST message to tab ${response.tabId}:`, err);
+        });
       } else {
-        console.warn("No tabId in response from native host. Cannot forward to content script.", response);
+        console.warn("Background: No tabId in response from native host or missing payload. Cannot forward to content script.", response);
       }
     });
 
@@ -69,8 +85,27 @@ function connectToNativeHost() {
 
 // Listen for messages from content scripts
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log("Message received in background script from content script:", message);
-  if (message.type === "TOOL_CALL_DETECTED") {
+  console.log("Message received in background script from content script:", message, "from sender:", sender);
+  if (message.type === "GET_PROMPT") {
+    console.log("Background: GET_PROMPT message received from content script.");
+    if (!port) {
+      console.log("Background: Native host port not connected, attempting to connect for GET_PROMPT.");
+      connectToNativeHost();
+    }
+    if (port) {
+      const requestPromptMessage = {
+        type: "REQUEST_PROMPT",
+        tabId: sender.tab ? sender.tab.id : null
+      };
+      console.log("Background: Sending REQUEST_PROMPT to native host:", requestPromptMessage);
+      sendToNativeHost(requestPromptMessage);
+      // Optional: sendResponse({status: "GET_PROMPT received, forwarding to native host"});
+    } else {
+      console.error("Background: Native host port not available for GET_PROMPT. Cannot send REQUEST_PROMPT.");
+      // Optional: sendResponse({status: "Error: Native host not connected"});
+    }
+    return true; // Indicate that we might send a response asynchronously (or not)
+  } else if (message.type === "TOOL_CALL_DETECTED") {
     const callId = message.payload && message.payload.call_id;
 
     if (callId) {
