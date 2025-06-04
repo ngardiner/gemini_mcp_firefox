@@ -43,11 +43,14 @@ function connectToNativeHost() {
       if (response.payload && response.payload.type === "PROMPT_RESPONSE") {
         console.log("Background: Received PROMPT_RESPONSE from native host:", response);
         if (response.tabId && response.payload.prompt) {
-          browser.tabs.sendMessage(response.tabId, {
+          const tabId = response.tabId;
+          const promptToSend = response.payload.prompt;
+          console.log("Background: Forwarding PROMPT_FROM_NATIVE_HOST to tabId:", tabId, "with prompt:", promptToSend); // Added per requirement
+          browser.tabs.sendMessage(tabId, {
             type: "PROMPT_FROM_NATIVE_HOST",
-            payload: { prompt: response.payload.prompt }
+            payload: { prompt: promptToSend }
           }).then(() => {
-            console.log(`Background: PROMPT_FROM_NATIVE_HOST message sent to tab ${response.tabId}`);
+            console.log(`Background: PROMPT_FROM_NATIVE_HOST message successfully sent to tab ${tabId}`);
           }).catch(err => {
             console.error(`Background: Error sending PROMPT_FROM_NATIVE_HOST message to tab ${response.tabId}:`, err);
           });
