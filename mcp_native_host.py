@@ -820,13 +820,7 @@ def main():
                         continue # Continue to next tool call in the parsed_tool_calls list
                     else:
                         # Process successful tool_result (existing logic)
-                        actual_result_content = ""
-                        if isinstance(tool_result, (dict, list)):
-                            actual_result_content = json.dumps(tool_result)
-                        elif tool_result is None:
-                            actual_result_content = ""
-                        else:
-                            actual_result_content = str(tool_result)
+                        actual_result_content = str(tool_result)
 
                         actual_result_content = actual_result_content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                         formatted_xml_result = f"""<tool_result>
