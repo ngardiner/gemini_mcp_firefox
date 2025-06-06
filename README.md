@@ -141,7 +141,7 @@ This is the more complex part and requires careful setup. The extension needs to
 
    c. **Prepare the Python Script (`mcp_native_host.py`):**
       *   This script is included in the repository.
-      *   **On Linux/macOS:** Make it executable: `chmod +x /path/to/your/mcp_native_host.py`. This is good practice even if using a wrapper script.
+      *   **On Linux/macOS:** Make it executable: `chmod +x /path/to/your/mcp_native_host.py`. This is good practice even if using a wrapper script. You may need to re-run this command if you find the script loses its executable permission after pulling updates from the repository.
       *   Ensure it has the correct shebang line at the top: `#!/usr/bin/env python3`. This is mainly relevant if you were to run the script directly or use Method 1 for venv configuration (not detailed here but mentioned in earlier discussions). With the wrapper script method, the wrapper explicitly calls the venv's Python.
       *   Place this script in a known location (e.g., your project directory).
 

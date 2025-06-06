@@ -7,6 +7,12 @@ import struct
 import os
 import xml.etree.ElementTree as ET
 
+# Moved print_debug definition earlier to ensure it's available for the mock client definitions
+# and the initial FASTMCP_AVAILABLE check.
+def print_debug(message):
+    sys.stderr.write(str(message) + '\n')
+    sys.stderr.flush()
+
 # Attempt to import fastmcp, provide a mock if not found for basic script structure to be valid
 try:
     import fastmcp.client
@@ -104,7 +110,7 @@ except ImportError:
         fastmcp = fastmcp_module_mock
 
 # Base system prompt including a placeholder for the dynamic tool list
-BASE_SYSTEM_PROMPT = """You are a powerful AI assistant with access to a suite of tools. When you need to use a tool, you must respond in the following XML format. You may use tools sequentially if needed.
+BASE_SYSTEM_PROMPT = r"""You are a powerful AI assistant with access to a suite of tools. When you need to use a tool, you must respond in the following XML format. You may use tools sequentially if needed.
 
 <tool_code>
 <tool_name>example_tool_name</tool_name>
@@ -124,9 +130,7 @@ DISCOVERED_TOOLS = []
 PROCESSED_CALL_IDS = set()
 FORMATTED_TOOL_LIST_MD = "" # Global variable to store the formatted tool list
 
-def print_debug(message):
-    sys.stderr.write(str(message) + '\n')
-    sys.stderr.flush()
+# print_debug is now defined much earlier in the script.
 
 def get_message():
     raw_length = sys.stdin.buffer.read(4)
