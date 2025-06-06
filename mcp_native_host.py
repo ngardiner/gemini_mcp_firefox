@@ -323,17 +323,16 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
                 print_debug(f"Async Discover: [{server_id}] Calling 'tools/list'...")
                 raw_tools_data = await client.list_tools()
 
-                # Logic for processing raw_tools_data (moved from main discovery loop)
-                if isinstance(raw_tools_data, list):
-                    for i, tool_def in enumerate(raw_tools_data):
-                        tool_def['mcp_server_id'] = server_id
-                        tool_def['mcp_server_url'] = server_config.get("url")
-                        tool_def['mcp_server_command'] = server_config.get("command")
-                        tool_def['mcp_server_type'] = server_type
-                        tools_from_this_server.append(tool_def)
-                    print_debug(f"Async Discover: Successfully discovered {len(tools_from_this_server)} tools from '{server_id}'.")
-                else:
-                    print_debug(f"Async Discover: Error: Tool discovery response from '{server_id}' is not a list as expected. Got: {type(raw_tools_data)}")
+                for tool in raw_tools_data:
+                    tool_def = {}
+                    tool_def['name'] = tool.name
+                    tool_def['tool'] = tool
+                    tool_def['mcp_server_id'] = server_id
+                    tool_def['mcp_server_url'] = server_config.get("url")
+                    tool_def['mcp_server_command'] = server_config.get("command")
+                    tool_def['mcp_server_type'] = server_type
+                    tools_from_this_server.append(tool_def)
+                print_debug(f"Async Discover: Successfully discovered {len(tools_from_this_server)} tools from '{server_id}'.")
         except Exception as e:
             print_debug(f"Async Discover: Error during async tool discovery for server '{server_id}': {e}")
             # tools_from_this_server will be empty or partially filled, and returned.
@@ -569,7 +568,7 @@ def main():
         print_debug(f"--- Total tools discovered across all servers: {len(DISCOVERED_TOOLS)} ---")
         tool_names_seen = {}
         for tool in DISCOVERED_TOOLS:
-            tool_name = tool.get('tool_name'); origin_server = tool.get('mcp_server_id')
+            tool_name = tool.get('name'); origin_server = tool.get('mcp_server_id')
             print_debug(f"  - Found tool: '{tool_name}' from server: '{origin_server}'")
             if tool_name in tool_names_seen: print_debug(f"    WARNING: Duplicate tool_name '{tool_name}' also on server '{tool_names_seen[tool_name]}'.")
             tool_names_seen[tool_name] = origin_server
@@ -583,11 +582,11 @@ def main():
         print_debug(f"Formatting {len(DISCOVERED_TOOLS)} discovered tools for system prompt...")
         for tool_info in DISCOVERED_TOOLS:
             tool_md = []
-            tool_md.append(f" - {tool_info.get('tool_name', 'Unnamed Tool')}")
-            tool_md.append(f"   **Description**: {tool_info.get('description', 'No description.')}")
+            tool_md.append(f" - {tool_info.get('name', 'Unnamed Tool')}")
+            tool_md.append(f"   **Description**: {tool_info['tool'].description}")
             tool_md.append(f"   **Parameters**:")
 
-            params_schema = tool_info.get('parameters_schema')
+            params_schema = tool_info['tool'].inputSchema
             properties = None
             if isinstance(params_schema, dict):
                 properties = params_schema.get('properties')
@@ -596,7 +595,7 @@ def main():
                 required_params = params_schema.get('required', [])
                 for param_name, param_details in properties.items():
                     if not isinstance(param_details, dict):
-                        print_debug(f"Warning: Parameter '{param_name}' for tool '{tool_info.get('tool_name')}' has invalid details format. Skipping.")
+                        print_debug(f"Warning: Parameter '{param_name}' for tool '{tool_info.get('name')}' has invalid details format. Skipping.")
                         continue
                     param_desc = param_details.get('description', '')
                     param_type = param_details.get('type', 'any')
@@ -744,7 +743,7 @@ def main():
                     # 1. Find Tool and Server Configuration
                     discovered_tool_config = None
                     for dt in DISCOVERED_TOOLS:
-                        if dt.get("tool_name") == tool_name:
+                        if dt.get("name") == tool_name:
                             discovered_tool_config = dt
                             break
 
