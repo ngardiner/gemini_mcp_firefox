@@ -48,10 +48,26 @@ except ImportError:
     if not FASTMCP_AVAILABLE: # Redundant check but safe
         fastmcp = fastmcp_module_mock
 
+# Base system prompt including a placeholder for the dynamic tool list
+BASE_SYSTEM_PROMPT = """You are a powerful AI assistant with access to a suite of tools. When you need to use a tool, you must respond in the following XML format. You may use tools sequentially if needed.
+
+<tool_code>
+<tool_name>example_tool_name</tool_name>
+<parameters>
+<param_name>param_value</param_name>
+</parameters>
+</tool_code>
+
+If you are making a final response to the user, or if you do not need to use a tool, simply respond in plain text.
+
+## AVAILABLE TOOLS
+{dynamic_tool_list_placeholder}
+<\SYSTEM>"""
 
 SERVER_CONFIGURATIONS = []
 DISCOVERED_TOOLS = []
 PROCESSED_CALL_IDS = set()
+FORMATTED_TOOL_LIST_MD = "" # Global variable to store the formatted tool list
 
 def print_debug(message):
     sys.stderr.write(str(message) + '\n')
@@ -269,6 +285,48 @@ def main():
             tool_names_seen[tool_name] = origin_server
     else:
         print_debug("No tools were discovered from any active server.")
+
+    # Format the discovered tools into a markdown string
+    global FORMATTED_TOOL_LIST_MD
+    md_parts = []
+    if DISCOVERED_TOOLS:
+        print_debug(f"Formatting {len(DISCOVERED_TOOLS)} discovered tools for system prompt...")
+        for tool_info in DISCOVERED_TOOLS:
+            tool_md = []
+            tool_md.append(f" - {tool_info.get('tool_name', 'Unnamed Tool')}")
+            tool_md.append(f"   **Description**: {tool_info.get('description', 'No description.')}")
+            tool_md.append(f"   **Parameters**:")
+
+            params_schema = tool_info.get('parameters_schema')
+            properties = None
+            if isinstance(params_schema, dict):
+                properties = params_schema.get('properties')
+
+            if properties and isinstance(properties, dict) and len(properties) > 0:
+                required_params = params_schema.get('required', [])
+                for param_name, param_details in properties.items():
+                    if not isinstance(param_details, dict):
+                        print_debug(f"Warning: Parameter '{param_name}' for tool '{tool_info.get('tool_name')}' has invalid details format. Skipping.")
+                        continue
+                    param_desc = param_details.get('description', '')
+                    param_type = param_details.get('type', 'any')
+                    is_req = 'required' if param_name in required_params else 'optional'
+                    tool_md.append(f"     - `{param_name}`: {param_desc} ({param_type}) ({is_req})")
+            else:
+                tool_md.append(f"     - No parameters defined.")
+
+            md_parts.append("\n".join(tool_md) + "\n") # Add extra newline after each tool block
+
+        FORMATTED_TOOL_LIST_MD = "\n".join(md_parts) # Join all tool blocks
+        # Remove last extra newline if string is not empty, to avoid triple newline before </SYSTEM>
+        if FORMATTED_TOOL_LIST_MD.endswith("\n\n"):
+             FORMATTED_TOOL_LIST_MD = FORMATTED_TOOL_LIST_MD[:-1]
+        print_debug(f"Formatted tool list MD:\n{FORMATTED_TOOL_LIST_MD}")
+
+    else:
+        FORMATTED_TOOL_LIST_MD = "No tools available." # Placeholder if no tools are discovered
+        print_debug("No tools discovered, FORMATTED_TOOL_LIST_MD set to 'No tools available.'.")
+
 
     print_debug(f"MCP Native Host script initialized. Waiting for messages...")
     while True:
@@ -531,17 +589,28 @@ def main():
                 if tab_id is None:
                     print_debug("Error: REQUEST_PROMPT received without a tabId. Cannot respond.")
                 else:
-                    dummy_prompt = "Test message from MCP Client: Describe the process of photosynthesis."
+                    # Access global BASE_SYSTEM_PROMPT and FORMATTED_TOOL_LIST_MD
+                    # Ensure FORMATTED_TOOL_LIST_MD is not None, though it's initialized to "" or "No tools available."
+                    tool_list_for_prompt = FORMATTED_TOOL_LIST_MD if FORMATTED_TOOL_LIST_MD else ""
+
+                    final_prompt = BASE_SYSTEM_PROMPT.replace("{dynamic_tool_list_placeholder}", tool_list_for_prompt)
+
+                    # Debug log for the final prompt (snippet)
+                    snippet_length = 200
+                    prompt_snippet_start = final_prompt[:snippet_length]
+                    prompt_snippet_end = final_prompt[-snippet_length:] if len(final_prompt) > snippet_length * 2 else ""
+                    ellipsis = " ... " if len(final_prompt) > snippet_length * 2 else ""
+                    print_debug(f"Final prompt snippet being sent to tabId {tab_id}: {prompt_snippet_start}{ellipsis}{prompt_snippet_end}")
+
                     response_message = {
                         "tabId": tab_id,
                         "payload": {
                             "type": "PROMPT_RESPONSE",
-                            "prompt": dummy_prompt
+                            "prompt": final_prompt
                         }
                     }
                     send_message(response_message)
-                    print_debug(f"Sent PROMPT_RESPONSE with dummy prompt to tabId: {tab_id}")
-
+                    print_debug(f"Sent PROMPT_RESPONSE with dynamically generated prompt to tabId: {tab_id}")
 
         except EOFError: print_debug("EOF encountered, stdin closed. Exiting."); break
         except Exception as e:
