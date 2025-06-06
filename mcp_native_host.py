@@ -326,14 +326,11 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
                 # Logic for processing raw_tools_data (moved from main discovery loop)
                 if isinstance(raw_tools_data, list):
                     for i, tool_def in enumerate(raw_tools_data):
-                        if isinstance(tool_def, dict):
-                            tool_def['mcp_server_id'] = server_id
-                            tool_def['mcp_server_url'] = server_config.get("url")
-                            tool_def['mcp_server_command'] = server_config.get("command")
-                            tool_def['mcp_server_type'] = server_type
-                            tools_from_this_server.append(tool_def)
-                        else:
-                            print_debug(f"Async Discover: Warning: Invalid tool definition received from '{server_id}' at index {i}. Skipping: {str(tool_def)[:100]}")
+                        tool_def['mcp_server_id'] = server_id
+                        tool_def['mcp_server_url'] = server_config.get("url")
+                        tool_def['mcp_server_command'] = server_config.get("command")
+                        tool_def['mcp_server_type'] = server_type
+                        tools_from_this_server.append(tool_def)
                     print_debug(f"Async Discover: Successfully discovered {len(tools_from_this_server)} tools from '{server_id}'.")
                 else:
                     print_debug(f"Async Discover: Error: Tool discovery response from '{server_id}' is not a list as expected. Got: {type(raw_tools_data)}")
@@ -370,14 +367,11 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
                 # Process raw_tools_data (same logic as before for processing results)
                 if isinstance(raw_tools_data, list):
                     for i, tool_def in enumerate(raw_tools_data):
-                        if isinstance(tool_def, dict):
-                            tool_def['mcp_server_id'] = server_id
-                            tool_def['mcp_server_url'] = server_config.get("url")
-                            tool_def['mcp_server_command'] = server_config.get("command")
-                            tool_def['mcp_server_type'] = server_type
-                            tools_from_this_server.append(tool_def)
-                        else:
-                            print_debug(f"Async Discover (Mock Path): Warning: Invalid tool definition received from '{server_id}' at index {i}. Skipping: {str(tool_def)[:100]}")
+                        tool_def['mcp_server_id'] = server_id
+                        tool_def['mcp_server_url'] = server_config.get("url")
+                        tool_def['mcp_server_command'] = server_config.get("command")
+                        tool_def['mcp_server_type'] = server_type
+                        tools_from_this_server.append(tool_def)
                     print_debug(f"Async Discover (Mock Path): Successfully discovered {len(tools_from_this_server)} tools from '{server_id}'.")
                 else:
                     print_debug(f"Async Discover (Mock Path): Error: Tool discovery response from '{server_id}' is not a list. Got: {type(raw_tools_data)}")
