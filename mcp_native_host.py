@@ -52,9 +52,9 @@ except ImportError:
             self.env = env if env is not None else {} # Retained for stdio mock behavior if needed
             print_debug(f"MockClient initialized for target: '{self.target}', server_id: '{self.server_id}'")
 
-        async def call_method_jsonrpc(self, method_name, params=None):
+        async def call_tool(self, method_name, params=None):
             print_debug(f"MockClient '{self.server_id}': Simulating async call to '{method_name}' with params: {params}")
-            # --- Start of copied/adapted logic from old BaseMockClient.call_method_jsonrpc ---
+
             # Simulate errors based on server_id or method_name
             if "network_error" in self.server_id:
                 print_debug(f"Mock '{self.server_id}': Simulating ConnectionError for '{method_name}'")
@@ -328,12 +328,11 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
                     for i, tool_def in enumerate(raw_tools_data):
                         if isinstance(tool_def, dict) and \
                            tool_def.get("name") and \
-                           tool_def.get("description") and \
-                           tool_def.get("inputSchema"):
-                            tool_def['mcp_server_id'] = server_id # Already have server_id
+                           tool_def.get("description"):
+                            tool_def['mcp_server_id'] = server_id
                             tool_def['mcp_server_url'] = server_config.get("url")
                             tool_def['mcp_server_command'] = server_config.get("command")
-                            tool_def['mcp_server_type'] = server_type # Already have server_type
+                            tool_def['mcp_server_type'] = server_type
                             tools_from_this_server.append(tool_def)
                         else:
                             print_debug(f"Async Discover: Warning: Invalid tool definition received from '{server_id}' at index {i}. Skipping: {str(tool_def)[:100]}")
@@ -366,9 +365,9 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
                 headers=server_config.get('headers', {}),
                 args=server_config.get('args', []),
                 env=server_config.get('env', {})
-            ) as client: # client is an instance of MockClient
+            ) as client: 
                 print_debug(f"Async Discover (Mock Path): [{server_id}] Calling 'tools/list' (async via MockClient)...")
-                raw_tools_data = await client.call_method_jsonrpc('tools/list')
+                raw_tools_data = await client.list_tools()
 
                 # Process raw_tools_data (same logic as before for processing results)
                 if isinstance(raw_tools_data, list):
@@ -398,7 +397,7 @@ async def _execute_tool_call_async(tool_name, parameters, server_config, current
     # It should return the result from the tool.
     mcp_server_id = server_config.get('id')
     server_type = server_config.get('type')
-    tool_result = None # Initialize tool_result
+    tool_result = None
 
     print_debug(f"Async Execute: Preparing tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) on server '{mcp_server_id}' (Type: {server_type}), FASTMCP_AVAILABLE={is_real_fastmcp_available}")
 
@@ -418,7 +417,7 @@ async def _execute_tool_call_async(tool_name, parameters, server_config, current
             # server_id for Client constructor is not yet defined in fastmcp.Client API
             async with current_fastmcp_module.Client(client_target) as client:
                 print_debug(f"Async Execute: Executing tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) async with params: {parameters} via MCP client for server '{mcp_server_id}'.")
-                tool_result = await client.call_method_jsonrpc(tool_name, parameters)
+                tool_result = await client.call_tool(tool_name, parameters)
                 print_debug(f"Async Execute: Tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) async executed successfully. Raw Result: {str(tool_result)[:200]}...")
         except Exception as e:
             print_debug(f"Async Execute: Error during async execution of tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) on server '{mcp_server_id}': {e}")
@@ -447,7 +446,7 @@ async def _execute_tool_call_async(tool_name, parameters, server_config, current
                 env=server_config.get('env', {})
             ) as client: # client is an instance of MockClient
                 print_debug(f"Async Execute (Mock Path): Executing tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) (async via MockClient) with params: {parameters} for server '{mcp_server_id}'.")
-                tool_result = await client.call_method_jsonrpc(tool_name, parameters)
+                tool_result = await client.call_tool(tool_name, parameters)
                 print_debug(f"Async Execute (Mock Path): Tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) (async via MockClient) executed. Result: {str(tool_result)[:200]}...")
         except Exception as e:
             print_debug(f"Async Execute (Mock Path): Error during async execution of tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) on server '{mcp_server_id}': {e}")
