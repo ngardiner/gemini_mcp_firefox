@@ -13,39 +13,94 @@ try:
     FASTMCP_AVAILABLE = True
 except ImportError:
     FASTMCP_AVAILABLE = False
-    # Mock fastmcp for script structure validity if library is not installed
-    class MockFastMcpClient:
-        def __init__(self, *args, **kwargs):
-            self.server_id = kwargs.get('server_id', 'mock_server')
-            # print_debug(f"MockFastMcpClient initialized for {self.server_id} with args: {args}, kwargs: {kwargs}")
-        def call_method_jsonrpc(self, method_name, params=None):
-            print_debug(f"MockFastMcpClient: Attempting to call '{method_name}' on {self.server_id} with params: {params}")
-            if method_name == 'tools/list':
-                # Return a mock tool list for testing structure
-                mock_tool = {
-                    "tool_name": f"mock_tool_from_{self.server_id}",
-                    "description": "A mock tool.",
-                    "parameters_schema": {"type": "object", "properties": {}},
-                }
-                # Simulate some servers having tools and some not, or an error
-                if "error" in self.server_id:
-                    raise Exception(f"Mock error for {self.server_id}")
-                if "empty" in self.server_id:
-                    return []
-                return [mock_tool]
-            return None
-        def close(self):
-            # print_debug(f"MockFastMcpClient for {self.server_id} closed.")
-            pass # Keep mock quiet on close for cleaner logs
+    print_debug("Native host: 'fastmcp' library not found. Using enhanced mock implementation.")
 
-    class fastmcp_module_mock: # Renamed to avoid conflict if real fastmcp exists partially
+    # --- Enhanced Mock fastmcp Client Definitions ---
+    class BaseMockClient:
+        def __init__(self, server_id="mock_server"):
+            self.server_id = server_id
+            print_debug(f"BaseMockClient initialized for server_id: '{self.server_id}'")
+
+        def call_method_jsonrpc(self, method_name, params=None):
+            print_debug(f"Mock '{self.server_id}': Simulating call to '{method_name}' with params: {params}")
+
+            # Simulate errors based on server_id or method_name
+            if "network_error" in self.server_id:
+                print_debug(f"Mock '{self.server_id}': Simulating ConnectionError for '{method_name}'")
+                raise ConnectionError(f"Mock Connection Error from {self.server_id}")
+            if "timeout_error" in self.server_id:
+                print_debug(f"Mock '{self.server_id}': Simulating TimeoutError for '{method_name}'")
+                raise TimeoutError(f"Mock Timeout from {self.server_id}")
+            if "malformed_json" in self.server_id:
+                print_debug(f"Mock '{self.server_id}': Simulating JSONDecodeError for '{method_name}'")
+                raise json.JSONDecodeError("Mock Malformed JSON", "doc", 0)
+            if "jsonrpc_error" in self.server_id or method_name == "nonexistent_tool_method":
+                err_msg = f"Mock JSON-RPC error from {self.server_id}: Method '{method_name}' not found"
+                print_debug(err_msg)
+                raise Exception(err_msg) # Current main script expects exceptions for JSON-RPC errors
+
+            # Simulate successful responses
+            if method_name == 'tools/list':
+                if "empty_tools" in self.server_id:
+                    print_debug(f"Mock '{self.server_id}': Simulating empty tool list.")
+                    return []
+                if "single_tool" in self.server_id:
+                    print_debug(f"Mock '{self.server_id}': Simulating single tool.")
+                    return [{
+                        "tool_name": f"single_mock_tool_{self.server_id}",
+                        "description": "A single mock tool.",
+                        "parameters_schema": {"type": "object", "properties": {"param1": {"type": "string", "description": "A parameter"}}},
+                    }]
+                print_debug(f"Mock '{self.server_id}': Simulating default multiple tools.")
+                return [
+                    {
+                        "tool_name": f"mock_tool_1_{self.server_id}",
+                        "description": "First mock tool.",
+                        "parameters_schema": {"type": "object", "properties": {"p1": {"type": "integer"}}},
+                    },
+                    {
+                        "tool_name": f"mock_tool_2_{self.server_id}",
+                        "description": "Second mock tool with no params.",
+                        "parameters_schema": {"type": "object", "properties": {}},
+                    }
+                ]
+            # Default success response for other methods (tool execution)
+            print_debug(f"Mock '{self.server_id}': Simulating successful execution for '{method_name}'.")
+            return {"status": "success", "data": f"mock result from {self.server_id} for {method_name}"}
+
+        def close(self):
+            print_debug(f"MockFastMcpClient for server_id '{self.server_id}' closed.")
+
+    class MockHttpClient(BaseMockClient):
+        def __init__(self, url, headers=None, server_id="mock_http_server"):
+            super().__init__(server_id)
+            self.url = url
+            self.headers = headers if headers is not None else {}
+            print_debug(f"MockHttpClient initialized for server_id: '{server_id}', url: '{url}', headers: {self.headers}")
+
+    class MockSseClient(BaseMockClient):
+        def __init__(self, url, headers=None, server_id="mock_sse_server"):
+            super().__init__(server_id)
+            self.url = url
+            self.headers = headers if headers is not None else {}
+            print_debug(f"MockSseClient initialized for server_id: '{server_id}', url: '{url}', headers: {self.headers}")
+
+    class MockStdioClient(BaseMockClient):
+        def __init__(self, command, args=None, env=None, server_id="mock_stdio_server"):
+            super().__init__(server_id)
+            self.command = command
+            self.args = args if args is not None else []
+            self.env = env if env is not None else {}
+            print_debug(f"MockStdioClient initialized for server_id: '{server_id}', command: '{command}', args: {self.args}")
+
+    class fastmcp_module_mock:
         class client:
-            HttpClient = MockFastMcpClient
-            SseClient = MockFastMcpClient # Assume SseClient has similar interface for now
-            StdioClient = MockFastMcpClient
+            HttpClient = MockHttpClient
+            SseClient = MockSseClient
+            StdioClient = MockStdioClient
 
     # Assign the mock to fastmcp if the real one isn't available
-    if not FASTMCP_AVAILABLE: # Redundant check but safe
+    if not FASTMCP_AVAILABLE: # This check is crucial
         fastmcp = fastmcp_module_mock
 
 # Base system prompt including a placeholder for the dynamic tool list
@@ -354,34 +409,49 @@ def main():
 
                 parsed_tool_calls = parse_tool_call_xml(raw_xml_from_cs, call_id_from_cs_attr)
 
-                if not parsed_tool_calls:
-                    print_debug("No tool calls parsed or XML was empty/invalid.")
-                    # Consider sending a specific response if parsing returned nothing but no explicit error
+                # Case 1: parse_tool_call_xml itself returned an error structure (e.g., XML syntax error)
+                # This is usually a single-item list with an "error" key.
+                if parsed_tool_calls and isinstance(parsed_tool_calls, list) and "error" in parsed_tool_calls[0]:
+                    error_data = parsed_tool_calls[0]
+                    print_debug(f"XML parsing directly returned an error: {error_data.get('error')}")
                     if tab_id:
-                         send_message({
-                             "tabId": tab_id,
-                             "payload": {
-                                 "status": "no_tools_parsed",
-                                 "message": "Python host: XML received, but no valid tool calls were parsed.",
-                                 "original_raw_xml": raw_xml_from_cs[:200]
-                             }
-                         })
+                        send_message({
+                            "tabId": tab_id,
+                            "payload": {
+                                "status": "error_parsing_xml", # More specific status
+                                "message": f"Python host: {error_data.get('error', 'Unknown XML parsing error.')}",
+                                "call_id": error_data.get("call_id", call_id_from_cs_attr), # Use original call_id if available
+                                "raw_xml_snippet": error_data.get("raw_xml", raw_xml_from_cs)[:200]
+                            }
+                        })
+                    continue # Skip further processing for this message
+
+                # Case 2: XML was valid, but no <invoke> elements were found.
+                # parse_tool_call_xml returns an empty list in this scenario (unless it's an error like root tag mismatch, handled above).
+                if not parsed_tool_calls: # This now specifically means no invokable tools found in otherwise valid XML structure
+                    print_debug(f"Valid XML received, but no <invoke> elements found or no tools parsed from: {raw_xml_from_cs[:100]}... Silently ignoring as per new logic.")
+                    # DO NOT send a message back to the extension. Silently ignore.
                     continue
 
+                # Case 3: Valid tool calls were parsed.
+                # Iterate through potentially multiple tool calls within one <function_calls> block.
                 for tool_call_data in parsed_tool_calls:
-                    if "error" in tool_call_data:
-                        print_debug(f"Error in parsed tool call data: {tool_call_data['error']}")
+                    # It's possible that parse_tool_call_xml could be extended to return per-tool errors
+                    # even within a list of otherwise valid calls. This handles that defensively.
+                    if "error" in tool_call_data: # Should ideally be caught by Case 1 if it's a global XML error.
+                        print_debug(f"Individual tool call data contained an error: {tool_call_data['error']}")
                         if tab_id:
                             send_message({
                                 "tabId": tab_id,
                                 "payload": {
-                                    "status": "error_parsing",
-                                    "message": f"Python host: {tool_call_data['error']}",
-                                    "call_id": tool_call_data.get("call_id"), # This might be the CS attr if parsing failed early
-                                    "raw_xml_snippet": tool_call_data.get("raw_xml", raw_xml_from_cs)[:200]
+                                    "status": "error_processing_tool_data", # Specific error for this tool
+                                    "message": f"Python host: {tool_call_data.get('error', 'Error in specific tool data.')}",
+                                    "call_id": tool_call_data.get("call_id"),
+                                    "tool_name": tool_call_data.get("tool_name", "Unknown tool"),
+                                    "raw_xml_snippet": tool_call_data.get("raw_xml_invoke", "")[:200]
                                 }
                             })
-                        continue # Move to the next parsed call, if any
+                        continue # Move to the next tool call in the list
 
                     # This is the call_id from Python parsing (XML content preferred, then CS attribute)
                     parsed_call_id = tool_call_data.get("call_id")

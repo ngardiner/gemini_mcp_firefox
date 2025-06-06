@@ -95,34 +95,37 @@ function handleFoundCodeElement(codeElement, sourceType) {
         return;
     }
 
-    console.log(`Gemini MCP Client [TOOL-DETECT]: Candidate <code> element found. Checking content... Class: ${codeElement.className}, ID: ${codeElement.id}, Source: ${sourceType}`);
+    console.log(`Gemini MCP Client [TOOL-DETECT]: Candidate <code> element found by selectors. Class: ${codeElement.className}, ID: ${codeElement.id}, Source: ${sourceType}`);
     const rawXml = codeElement.textContent ? codeElement.textContent.trim() : "";
 
-    if (rawXml.includes("function_calls")) {
-        console.warn(`Gemini MCP Client [TOOL-DETECT]: !!! function_calls STRING FOUND in textContent !!! Class: ${codeElement.className}, ID: ${codeElement.id}, Source: ${sourceType}`);
-        console.log(`Gemini MCP Client [TOOL-DETECT]: Extracted rawXml (sample): ${rawXml.substring(0, 200)}...`);
-        console.log("[TOOL-DETECT]: Assuming textContent has decoded HTML entities like &lt; if they were present.");
+    // The check for "function_calls" will now be done by the native host.
+    // We unconditionally send the content for further inspection.
 
-        if (!rawXml.startsWith("<")) {
-            console.warn("Gemini MCP Client [TOOL-DETECT]: Extracted textContent does not start with '<', might not be valid XML for tool call:", rawXml.substring(0,100) + "...");
-        }
+    console.log(`Gemini MCP Client [TOOL-DETECT]: Extracted rawXml (sample): ${rawXml.substring(0, 200)}...`);
+    console.log("[TOOL-DETECT]: Sending content of <code> element to native host for inspection and potential tool call execution.");
 
-        let extractedCallId = null;
-        if (codeElement.dataset.callId) {
-            extractedCallId = codeElement.dataset.callId;
-            console.log(`Gemini MCP Client [TOOL-DETECT]: Found call_id on element: ${extractedCallId}`);
-        } else if (codeElement.parentElement && codeElement.parentElement.dataset.callId) {
-            extractedCallId = codeElement.parentElement.dataset.callId;
-            console.log(`Gemini MCP Client [TOOL-DETECT]: Found call_id on parentElement: ${extractedCallId}`);
-        }
-
-        sendToolCallToBackground({ raw_xml: rawXml, call_id: extractedCallId });
-
-        codeElement.dataset.mcpProcessed = 'true'; // Re-enabled
-        console.log(`Gemini MCP Client [TOOL-DETECT]: Marked <code> element as processed. Class: ${codeElement.className}, ID: ${codeElement.id}`);
-    } else {
-        // console.log(`Gemini MCP Client [TOOL-DETECT]: "function_calls" string NOT found in textContent of: Class: ${codeElement.className}, ID: ${codeElement.id}, textContent (sample): ${rawXml.substring(0,100)}...`);
+    // It's still possible the rawXml might not be structured as expected (e.g. not starting with '<'),
+    // but the native host will handle that.
+    // We can still log a warning if it's obviously not XML-like, as a local debug hint.
+    if (!rawXml.startsWith("<") && rawXml.length > 0) { // Added length check to avoid warning for empty textContent
+        console.warn(`Gemini MCP Client [TOOL-DETECT]: contentScript notices textContent does not start with '<'. Native host will make final determination. Content (sample): ${rawXml.substring(0,100)}...`);
     }
+
+    let extractedCallId = null;
+    if (codeElement.dataset.callId) {
+        extractedCallId = codeElement.dataset.callId;
+        console.log(`Gemini MCP Client [TOOL-DETECT]: Found call_id on element: ${extractedCallId}`);
+    } else if (codeElement.parentElement && codeElement.parentElement.dataset.callId) {
+        extractedCallId = codeElement.parentElement.dataset.callId;
+        console.log(`Gemini MCP Client [TOOL-DETECT]: Found call_id on parentElement: ${extractedCallId}`);
+    } else {
+        console.log(`Gemini MCP Client [TOOL-DETECT]: No call_id found on element or its parent. Sending null call_id.`);
+    }
+
+    sendToolCallToBackground({ raw_xml: rawXml, call_id: extractedCallId });
+
+    codeElement.dataset.mcpProcessed = 'true';
+    console.log(`Gemini MCP Client [TOOL-DETECT]: Marked <code> element as processed and sent to background. Class: ${codeElement.className}, ID: ${codeElement.id}`);
 }
 
 // Function to handle responses from the background script (coming from native host or for prompts)
