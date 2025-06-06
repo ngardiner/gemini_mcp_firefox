@@ -626,8 +626,8 @@ def main():
                             })
                         continue # Continue to next tool call in the parsed_tool_calls list
                     else:
-                        # Process successful tool_result (existing logic)
-                        actual_result_content = tool_result.text
+                        # Process successful tool_result
+                        actual_result_content = tool_result[0].text
 
                         actual_result_content = actual_result_content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                         formatted_xml_result = f"""<tool_result>
