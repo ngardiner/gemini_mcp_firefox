@@ -329,7 +329,7 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
                         if isinstance(tool_def, dict) and \
                            tool_def.get("tool_name") and \
                            tool_def.get("description") and \
-                           tool_def.get("parameters_schema"):
+                           tool_def.get("inputSchema"):
                             tool_def['mcp_server_id'] = server_id # Already have server_id
                             tool_def['mcp_server_url'] = server_config.get("url")
                             tool_def['mcp_server_command'] = server_config.get("command")
