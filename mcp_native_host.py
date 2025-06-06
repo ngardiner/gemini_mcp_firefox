@@ -326,9 +326,7 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
                 # Logic for processing raw_tools_data (moved from main discovery loop)
                 if isinstance(raw_tools_data, list):
                     for i, tool_def in enumerate(raw_tools_data):
-                        if isinstance(tool_def, dict) and \
-                           tool_def.get("name") and \
-                           tool_def.get("description"):
+                        if isinstance(tool_def, dict):
                             tool_def['mcp_server_id'] = server_id
                             tool_def['mcp_server_url'] = server_config.get("url")
                             tool_def['mcp_server_command'] = server_config.get("command")
@@ -372,10 +370,7 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
                 # Process raw_tools_data (same logic as before for processing results)
                 if isinstance(raw_tools_data, list):
                     for i, tool_def in enumerate(raw_tools_data):
-                        if isinstance(tool_def, dict) and \
-                           tool_def.get("tool_name") and \
-                           tool_def.get("description") and \
-                           tool_def.get("parameters_schema"):
+                        if isinstance(tool_def, dict):
                             tool_def['mcp_server_id'] = server_id
                             tool_def['mcp_server_url'] = server_config.get("url")
                             tool_def['mcp_server_command'] = server_config.get("command")
