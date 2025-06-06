@@ -535,7 +535,7 @@ def parse_tool_call_xml(xml_string, received_call_id_attr=None):
 
 
 def main():
-    global DISCOVERED_TOOLS; DISCOVERED_TOOLS = []
+    global DISCOVERED_TOOLS
     if not FASTMCP_AVAILABLE: # This global is set at import time
         print_debug("WARNING: fastmcp library not found. Tool discovery will use mock data and may not reflect real server behavior.")
     else:
@@ -547,8 +547,6 @@ def main():
         else: print_debug("No valid server configurations found.")
     else: print_debug("Failed to load MCP server configurations.")
 
-    # Ensure DISCOVERED_TOOLS is reset before starting discovery
-    global DISCOVERED_TOOLS
     DISCOVERED_TOOLS = []
     print_debug("Starting tool discovery...")
 
