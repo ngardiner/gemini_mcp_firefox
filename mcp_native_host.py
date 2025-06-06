@@ -24,22 +24,21 @@ def print_debug(message):
 FASTMCP_AVAILABLE = False  # Initialize to False
 try:
     import fastmcp
-    if hasattr(fastmcp, 'Client'):
+    if hasattr(fastmcp, 'Client') and hasattr(fastmcp.Client, 'call_method_jsonrpc'):
         FASTMCP_AVAILABLE = True
         # Attempt to import the specific client classes needed for type hinting/direct use if any
         # For now, we primarily use fastmcp.Client.HttpClient etc. later,
-        # so the hasattr check for 'Client' is the main gate.
-        # If specific sub-modules were directly used like 'from fastmcp.client import HttpClient',
-        # those would need their own try-except or further hasattr checks.
-        # This script dynamically calls fastmcp.client.HttpClient etc.
-        # so direct import of submodules here isn't strictly necessary for functionality,
-        # but good for clarity if they were.
-        # Example: from fastmcp.client import HttpClient, SseClient, StdioClient
+        # so the hasattr check for 'Client' and 'call_method_jsonrpc' is the main gate.
+    elif hasattr(fastmcp, 'Client'):
+        # Client class exists but doesn't have the required method
+        FASTMCP_AVAILABLE = False # Explicitly set to False
+        print_debug("Native host: 'fastmcp.Client' imported but lacks 'call_method_jsonrpc'. Using mock.")
     else:
-        # FASTMCP_AVAILABLE remains False (already set)
+        # Client class itself is not found
+        FASTMCP_AVAILABLE = False # Explicitly set to False
         print_debug("Native host: 'fastmcp' library imported but 'Client' class not found. Using mock.")
 except ImportError:
-    # FASTMCP_AVAILABLE remains False (already set)
+    FASTMCP_AVAILABLE = False # Explicitly set to False
     print_debug("Native host: 'fastmcp' library not found. Using new unified MockClient.")
 
     # --- New Unified MockClient Definition ---
@@ -326,17 +325,33 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
                 # Logic for processing raw_tools_data (moved from main discovery loop)
                 if isinstance(raw_tools_data, list):
                     for i, tool_def in enumerate(raw_tools_data):
+                        # Check for tool_name and description first
                         if isinstance(tool_def, dict) and \
                            tool_def.get("tool_name") and \
-                           tool_def.get("description") and \
-                           tool_def.get("parameters_schema"):
-                            tool_def['mcp_server_id'] = server_id # Already have server_id
-                            tool_def['mcp_server_url'] = server_config.get("url")
-                            tool_def['mcp_server_command'] = server_config.get("command")
-                            tool_def['mcp_server_type'] = server_type # Already have server_type
-                            tools_from_this_server.append(tool_def)
+                           tool_def.get("description"):
+
+                            # Check for schema under 'inputSchema' or 'parameters_schema'
+                            schema_data = None
+                            if "inputSchema" in tool_def:
+                                schema_data = tool_def["inputSchema"]
+                            elif "parameters_schema" in tool_def:
+                                schema_data = tool_def["parameters_schema"]
+
+                            if schema_data is not None:
+                                # Ensure 'parameters_schema' key exists for downstream compatibility
+                                tool_def["parameters_schema"] = schema_data
+
+                                tool_def['mcp_server_id'] = server_id
+                                tool_def['mcp_server_url'] = server_config.get("url")
+                                tool_def['mcp_server_command'] = server_config.get("command")
+                                tool_def['mcp_server_type'] = server_type
+                                tools_from_this_server.append(tool_def)
+                            else:
+                                # Missing schema
+                                print_debug(f"Async Discover: Warning: Missing schema (inputSchema or parameters_schema) in tool definition received from '{server_id}' at index {i}. Skipping: {str(tool_def)[:100]}")
                         else:
-                            print_debug(f"Async Discover: Warning: Invalid tool definition received from '{server_id}' at index {i}. Skipping: {str(tool_def)[:100]}")
+                            # Missing tool_name or description
+                            print_debug(f"Async Discover: Warning: Invalid tool definition (missing name or description) received from '{server_id}' at index {i}. Skipping: {str(tool_def)[:100]}")
                     print_debug(f"Async Discover: Successfully discovered {len(tools_from_this_server)} tools from '{server_id}'.")
                 else:
                     print_debug(f"Async Discover: Error: Tool discovery response from '{server_id}' is not a list as expected. Got: {type(raw_tools_data)}")
