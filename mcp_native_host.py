@@ -327,7 +327,7 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
                 if isinstance(raw_tools_data, list):
                     for i, tool_def in enumerate(raw_tools_data):
                         if isinstance(tool_def, dict) and \
-                           tool_def.get("tool_name") and \
+                           tool_def.get("name") and \
                            tool_def.get("description") and \
                            tool_def.get("inputSchema"):
                             tool_def['mcp_server_id'] = server_id # Already have server_id
