@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import asyncio
+import fastmcp
 import sys
 import sys
 import json
@@ -19,105 +20,6 @@ def run_async_task(task):
 def print_debug(message):
     sys.stderr.write(str(message) + '\n')
     sys.stderr.flush()
-
-# Attempt to import fastmcp, provide a mock if not found for basic script structure to be valid
-FASTMCP_AVAILABLE = False  # Initialize to False
-try:
-    import fastmcp
-    if hasattr(fastmcp, 'Client'):
-        FASTMCP_AVAILABLE = True
-        # Attempt to import the specific client classes needed for type hinting/direct use if any
-        # For now, we primarily use fastmcp.Client.HttpClient etc. later,
-        # so the hasattr check for 'Client' is the main gate.
-        # If specific sub-modules were directly used like 'from fastmcp.client import HttpClient',
-        # those would need their own try-except or further hasattr checks.
-        # This script dynamically calls fastmcp.client.HttpClient etc.
-        # so direct import of submodules here isn't strictly necessary for functionality,
-        # but good for clarity if they were.
-        # Example: from fastmcp.client import HttpClient, SseClient, StdioClient
-    else:
-        # FASTMCP_AVAILABLE remains False (already set)
-        print_debug("Native host: 'fastmcp' library imported but 'Client' class not found. Using mock.")
-except ImportError:
-    # FASTMCP_AVAILABLE remains False (already set)
-    print_debug("Native host: 'fastmcp' library not found. Using new unified MockClient.")
-
-    # --- New Unified MockClient Definition ---
-    class MockClient:
-        def __init__(self, target, server_id_for_mock="mock_server", headers=None, args=None, env=None): # server_id_for_mock is for compatibility with old BaseMockClient logic
-            self.target = target
-            self.server_id = server_id_for_mock # Used by mock logic to simulate different server behaviors
-            self.headers = headers if headers is not None else {} # Retained for potential future use or detailed mock behavior
-            self.args = args if args is not None else [] # Retained for stdio mock behavior if needed
-            self.env = env if env is not None else {} # Retained for stdio mock behavior if needed
-            print_debug(f"MockClient initialized for target: '{self.target}', server_id: '{self.server_id}'")
-
-        async def call_tool(self, method_name, params=None):
-            print_debug(f"MockClient '{self.server_id}': Simulating async call to '{method_name}' with params: {params}")
-
-            # Simulate errors based on server_id or method_name
-            if "network_error" in self.server_id:
-                print_debug(f"Mock '{self.server_id}': Simulating ConnectionError for '{method_name}'")
-                raise ConnectionError(f"Mock Connection Error from {self.server_id}")
-            if "timeout_error" in self.server_id:
-                print_debug(f"Mock '{self.server_id}': Simulating TimeoutError for '{method_name}'")
-                raise TimeoutError(f"Mock Timeout from {self.server_id}")
-            if "malformed_json" in self.server_id:
-                print_debug(f"Mock '{self.server_id}': Simulating JSONDecodeError for '{method_name}'")
-                raise json.JSONDecodeError("Mock Malformed JSON", "doc", 0)
-            if "jsonrpc_error" in self.server_id or method_name == "nonexistent_tool_method":
-                err_msg = f"Mock JSON-RPC error from {self.server_id}: Method '{method_name}' not found"
-                print_debug(err_msg)
-                raise Exception(err_msg)
-
-            if method_name == 'tools/list':
-                if "empty_tools" in self.server_id: # server_id can be e.g. "empty_tools_mock_server"
-                    print_debug(f"Mock '{self.server_id}': Simulating empty tool list.")
-                    return []
-                if "single_tool" in self.server_id:
-                    print_debug(f"Mock '{self.server_id}': Simulating single tool.")
-                    return [{
-                        "tool_name": f"single_mock_tool_{self.server_id}",
-                        "description": "A single mock tool.",
-                        "parameters_schema": {"type": "object", "properties": {"param1": {"type": "string", "description": "A parameter"}}},
-                    }]
-                print_debug(f"Mock '{self.server_id}': Simulating default multiple tools.")
-                return [
-                    {
-                        "tool_name": f"mock_tool_1_{self.server_id}",
-                        "description": "First mock tool.",
-                        "parameters_schema": {"type": "object", "properties": {"p1": {"type": "integer"}}},
-                    },
-                    {
-                        "tool_name": f"mock_tool_2_{self.server_id}",
-                        "description": "Second mock tool with no params.",
-                        "parameters_schema": {"type": "object", "properties": {}},
-                    }
-                ]
-            print_debug(f"Mock '{self.server_id}': Simulating successful execution for '{method_name}'.")
-            return {"status": "success", "data": f"mock result from {self.server_id} for {method_name}"}
-            # --- End of copied/adapted logic ---
-
-        async def __aenter__(self):
-            print_debug(f"MockClient '{self.server_id}' entering async context.")
-            return self # Important: return self
-
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            print_debug(f"MockClient '{self.server_id}' exiting async context. Type: {exc_type}")
-            # This replaces the old client.close() for the mock.
-            # Add any cleanup logic if necessary for the mock.
-
-    class fastmcp_module_mock:
-        Client = MockClient # Assign the new MockClient class directly
-        # The old inner 'class client:' and its attributes (HttpClient, etc.) are removed by this redefinition.
-
-    # Assign the mock to fastmcp if the real one isn't available
-    if not FASTMCP_AVAILABLE: # This check is crucial
-        # If fastmcp was imported but was incomplete (no Client), it still exists as a module object.
-        # We need to ensure our mock object `fastmcp_module_mock` is used.
-        # If fastmcp failed to import entirely, 'fastmcp' name isn't defined yet.
-        # In both cases, assigning our mock makes 'fastmcp' refer to the mock.
-        fastmcp = fastmcp_module_mock() # Instantiate the mock class
 
 # Base system prompt including a placeholder for the dynamic tool list
 BASE_SYSTEM_PROMPT = r"""
@@ -295,7 +197,7 @@ def load_server_configurations(config_filename="mcp_servers_config.json"):
 
 # Removed discover_tools_http function (now handled by fastmcp clients)
 
-async def _discover_tools_for_server_async(server_config, current_fastmcp_module, is_real_fastmcp_available):
+async def _discover_tools_for_server_async(server_config, current_fastmcp_module):
     # This function will encapsulate the logic for discovering tools from a single server.
     # It should return a list of tool definitions from this server.
     server_id = server_config.get('id')
@@ -303,9 +205,8 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
     tools_from_this_server = []
     client = None # Ensure client is defined
 
-    print_debug(f"Async Discover: Processing server '{server_id}' (Type: {server_type}), FASTMCP_AVAILABLE={is_real_fastmcp_available}")
+    print_debug(f"Async Discover: Processing server '{server_id}' (Type: {server_type})")
 
-    if is_real_fastmcp_available:
         client_target = None
         if server_type == "streamable-http" or server_type == "sse":
             client_target = server_config.get('url')
@@ -336,110 +237,38 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
         except Exception as e:
             print_debug(f"Async Discover: Error during async tool discovery for server '{server_id}': {e}")
             # tools_from_this_server will be empty or partially filled, and returned.
-    else: # Mock client path (is_real_fastmcp_available is False) - NOW USES ASYNC PATTERN
-        print_debug(f"Async Discover (Mock Path): Processing server '{server_id}' (Type: {server_type}) with new MockClient")
-        client_target = None
-        if server_type == "streamable-http" or server_type == "sse":
-            client_target = server_config.get('url')
-        elif server_type == "stdio":
-            client_target = server_config.get('command')
-
-        if not client_target:
-            print_debug(f"Async Discover (Mock Path): No valid client target for server '{server_id}' (type: {server_type}). Skipping.")
-            return tools_from_this_server
-
-        try:
-            # Note: current_fastmcp_module is fastmcp_module_mock instance here.
-            # So current_fastmcp_module.Client is MockClient class.
-            # Pass server_id to server_id_for_mock for behavior simulation.
-            # Other params like headers, args, env are passed for completeness if MockClient uses them.
-            async with current_fastmcp_module.Client(
-                client_target,
-                server_id_for_mock=server_id,
-                headers=server_config.get('headers', {}),
-                args=server_config.get('args', []),
-                env=server_config.get('env', {})
-            ) as client: 
-                print_debug(f"Async Discover (Mock Path): [{server_id}] Calling 'tools/list' (async via MockClient)...")
-                raw_tools_data = await client.list_tools()
-
-                # Process raw_tools_data (same logic as before for processing results)
-                if isinstance(raw_tools_data, list):
-                    for i, tool_def in enumerate(raw_tools_data):
-                        tool_def['mcp_server_id'] = server_id
-                        tool_def['mcp_server_url'] = server_config.get("url")
-                        tool_def['mcp_server_command'] = server_config.get("command")
-                        tool_def['mcp_server_type'] = server_type
-                        tools_from_this_server.append(tool_def)
-                    print_debug(f"Async Discover (Mock Path): Successfully discovered {len(tools_from_this_server)} tools from '{server_id}'.")
-                else:
-                    print_debug(f"Async Discover (Mock Path): Error: Tool discovery response from '{server_id}' is not a list. Got: {type(raw_tools_data)}")
-        except Exception as e:
-            print_debug(f"Async Discover (Mock Path): Error during async tool discovery for server '{server_id}': {e}")
-        # No finally/close needed due to async with
 
     return tools_from_this_server
 
-async def _execute_tool_call_async(tool_name, parameters, server_config, current_fastmcp_module, is_real_fastmcp_available, parsed_call_id_for_logging):
+async def _execute_tool_call_async(tool_name, parameters, server_config, current_fastmcp_module, parsed_call_id_for_logging):
     # This function will execute a single tool call.
     # It should return the result from the tool.
     mcp_server_id = server_config.get('id')
     server_type = server_config.get('type')
     tool_result = None
 
-    print_debug(f"Async Execute: Preparing tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) on server '{mcp_server_id}' (Type: {server_type}), FASTMCP_AVAILABLE={is_real_fastmcp_available}")
+    print_debug(f"Async Execute: Preparing tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) on server '{mcp_server_id}' (Type: {server_type})")
 
-    if is_real_fastmcp_available:
-        client_target = None
-        if server_type == "streamable-http" or server_type == "sse":
-            client_target = server_config.get('url')
-        elif server_type == "stdio":
-            client_target = server_config.get('command')
+    client_target = None
+    if server_type == "streamable-http" or server_type == "sse":
+        client_target = server_config.get('url')
+    elif server_type == "stdio":
+        client_target = server_config.get('command')
 
-        if not client_target:
-            print_debug(f"Async Execute: No valid client target for server '{mcp_server_id}' (type: {server_type}) for tool '{tool_name}'.")
-            # Consider raising an exception or returning an error structure
-            raise ValueError(f"Cannot determine client target for server {mcp_server_id} to execute {tool_name}")
+    if not client_target:
+        print_debug(f"Async Execute: No valid client target for server '{mcp_server_id}' (type: {server_type}) for tool '{tool_name}'.")
+        # Consider raising an exception or returning an error structure
+        raise ValueError(f"Cannot determine client target for server {mcp_server_id} to execute {tool_name}")
 
-        try:
-            # server_id for Client constructor is not yet defined in fastmcp.Client API
-            async with current_fastmcp_module.Client(client_target) as client:
-                print_debug(f"Async Execute: Executing tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) async with params: {parameters} via MCP client for server '{mcp_server_id}'.")
-                tool_result = await client.call_tool(tool_name, parameters)
-                print_debug(f"Async Execute: Tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) async executed successfully. Raw Result: {str(tool_result)[:200]}...")
-        except Exception as e:
-            print_debug(f"Async Execute: Error during async execution of tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) on server '{mcp_server_id}': {e}")
-            # Propagate the exception to be handled by the caller in the message loop
-            raise
-    else: # Mock client path (is_real_fastmcp_available is False) - NOW USES ASYNC PATTERN
-        print_debug(f"Async Execute (Mock Path): Preparing tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) on server '{mcp_server_id}' (Type: {server_type}) with new MockClient")
-        client_target = None
-        if server_type == "streamable-http" or server_type == "sse":
-            client_target = server_config.get('url')
-        elif server_type == "stdio":
-            client_target = server_config.get('command')
-
-        if not client_target:
-            print_debug(f"Async Execute (Mock Path): No valid client target for server '{mcp_server_id}' (type: {server_type}) for tool '{tool_name}'.")
-            raise ValueError(f"Cannot determine client target for mock server {mcp_server_id} to execute {tool_name}")
-
-        try:
-            # current_fastmcp_module.Client is MockClient class.
-            # Pass mcp_server_id to server_id_for_mock for behavior simulation.
-            async with current_fastmcp_module.Client(
-                client_target,
-                server_id_for_mock=mcp_server_id,
-                headers=server_config.get('headers', {}), # Pass relevant config parts
-                args=server_config.get('args', []),
-                env=server_config.get('env', {})
-            ) as client: # client is an instance of MockClient
-                print_debug(f"Async Execute (Mock Path): Executing tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) (async via MockClient) with params: {parameters} for server '{mcp_server_id}'.")
-                tool_result = await client.call_tool(tool_name, parameters)
-                print_debug(f"Async Execute (Mock Path): Tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) (async via MockClient) executed. Result: {str(tool_result)[:200]}...")
-        except Exception as e:
-            print_debug(f"Async Execute (Mock Path): Error during async execution of tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) on server '{mcp_server_id}': {e}")
-            raise # Propagate for consistency
-        # No finally/close needed due to async with
+    try:
+        async with current_fastmcp_module.Client(client_target) as client:
+            print_debug(f"Async Execute: Executing tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) async with params: {parameters} via MCP client for server '{mcp_server_id}'.")
+            tool_result = await client.call_tool(tool_name, parameters)
+            print_debug(f"Async Execute: Tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) async executed successfully. Raw Result: {str(tool_result)[:200]}...")
+    except Exception as e:
+        print_debug(f"Async Execute: Error during async execution of tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) on server '{mcp_server_id}': {e}")
+        # Propagate the exception to be handled by the caller in the message loop
+        raise
 
     return tool_result
 
@@ -523,11 +352,6 @@ def parse_tool_call_xml(xml_string, received_call_id_attr=None):
 
 def main():
     global DISCOVERED_TOOLS
-    if not FASTMCP_AVAILABLE: # This global is set at import time
-        print_debug("WARNING: fastmcp library not found. Tool discovery will use mock data and may not reflect real server behavior.")
-    else:
-        print_debug("fastmcp library seems to be available.")
-
 
     if load_server_configurations():
         if SERVER_CONFIGURATIONS: print_debug(f"Loaded {len(SERVER_CONFIGURATIONS)} MCP server configurations.")
@@ -548,9 +372,8 @@ def main():
         print_debug(f"Attempting discovery for server: '{server_id}' (Type: {server_config.get('type')})")
 
         try:
-            # Pass fastmcp (real module or mock) and FASTMCP_AVAILABLE to the helper
             discovered_list = run_async_task(
-                _discover_tools_for_server_async(server_config, fastmcp, FASTMCP_AVAILABLE)
+                _discover_tools_for_server_async(server_config, fastmcp)
             )
 
             # _discover_tools_for_server_async is expected to return a list (empty if errors or no tools)
@@ -725,21 +548,6 @@ def main():
                     print_debug(f"Added call_id '{parsed_call_id}' to processed set. Set size: {len(PROCESSED_CALL_IDS)}")
 
                     # --- BEGIN TOOL EXECUTION LOGIC ---
-                    if not FASTMCP_AVAILABLE:
-                        print_debug(f"FASTMCP_AVAILABLE is False. Cannot execute tool '{tool_name}'. Sending error to extension.")
-                        if tab_id:
-                            send_message({
-                                "tabId": tab_id,
-                                "payload": {
-                                    "status": "error_executing_tool",
-                                    "tool_name": tool_name,
-                                    "call_id": parsed_call_id,
-                                    "message": "fastmcp library is not available in the native host. Tool execution is disabled.",
-                                    "text_response": f"<tool_result><call_id>{parsed_call_id}</call_id><tool_name>{tool_name}</tool_name><result>ERROR: fastmcp library not available. Tool execution disabled.</result></tool_result>"
-                                }
-                            })
-                        continue # Skip to next tool call
-
                     # 1. Find Tool and Server Configuration
                     discovered_tool_config = None
                     for dt in DISCOVERED_TOOLS:
@@ -789,10 +597,10 @@ def main():
                     execution_error = None
 
                     try:
-                        print_debug(f"Main Loop: Calling run_async_task for tool '{tool_name}' (Call ID: {parsed_call_id}) on server '{mcp_server_id}'. FASTMCP_AVAILABLE={FASTMCP_AVAILABLE}")
+                        print_debug(f"Main Loop: Calling run_async_task for tool '{tool_name}' (Call ID: {parsed_call_id}) on server '{mcp_server_id}'.")
                         # Pass `parsed_call_id` for logging purposes within the async helper
                         tool_result = run_async_task(
-                            _execute_tool_call_async(tool_name, parameters, server_config, fastmcp, FASTMCP_AVAILABLE, parsed_call_id)
+                            _execute_tool_call_async(tool_name, parameters, server_config, fastmcp, parsed_call_id)
                         )
                         # If _execute_tool_call_async completes without raising an exception, tool_result is set.
                         # If it raises, execution_error will be set in the except block below.
@@ -820,7 +628,7 @@ def main():
                         continue # Continue to next tool call in the parsed_tool_calls list
                     else:
                         # Process successful tool_result (existing logic)
-                        actual_result_content = str(tool_result)
+                        actual_result_content = tool_result.text
 
                         actual_result_content = actual_result_content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                         formatted_xml_result = f"""<tool_result>
