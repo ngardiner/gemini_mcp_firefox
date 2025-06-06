@@ -3,7 +3,6 @@
 import asyncio
 import fastmcp
 import sys
-import sys
 import json
 import struct
 import os
@@ -207,36 +206,36 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
 
     print_debug(f"Async Discover: Processing server '{server_id}' (Type: {server_type})")
 
-        client_target = None
-        if server_type == "streamable-http" or server_type == "sse":
-            client_target = server_config.get('url')
-        elif server_type == "stdio":
-            client_target = server_config.get('command')
+    client_target = None
+    if server_type == "streamable-http" or server_type == "sse":
+        client_target = server_config.get('url')
+    elif server_type == "stdio":
+        client_target = server_config.get('command')
 
-        if not client_target:
-            print_debug(f"Async Discover: No valid client target for server '{server_id}' (type: {server_type}). Skipping.")
-            return tools_from_this_server
+    if not client_target:
+        print_debug(f"Async Discover: No valid client target for server '{server_id}' (type: {server_type}). Skipping.")
+        return tools_from_this_server
 
-        try:
-            # server_id for Client constructor is not yet defined in fastmcp.Client API
-            # Pass only target for now. Context might be passed via methods if needed by the library.
-            async with current_fastmcp_module.Client(client_target) as client:
-                print_debug(f"Async Discover: [{server_id}] Calling 'tools/list'...")
-                raw_tools_data = await client.list_tools()
+    try:
+        # server_id for Client constructor is not yet defined in fastmcp.Client API
+        # Pass only target for now. Context might be passed via methods if needed by the library.
+        async with current_fastmcp_module.Client(client_target) as client:
+            print_debug(f"Async Discover: [{server_id}] Calling 'tools/list'...")
+            raw_tools_data = await client.list_tools()
 
-                for tool in raw_tools_data:
-                    tool_def = {}
-                    tool_def['name'] = tool.name
-                    tool_def['tool'] = tool
-                    tool_def['mcp_server_id'] = server_id
-                    tool_def['mcp_server_url'] = server_config.get("url")
-                    tool_def['mcp_server_command'] = server_config.get("command")
-                    tool_def['mcp_server_type'] = server_type
-                    tools_from_this_server.append(tool_def)
-                print_debug(f"Async Discover: Successfully discovered {len(tools_from_this_server)} tools from '{server_id}'.")
-        except Exception as e:
-            print_debug(f"Async Discover: Error during async tool discovery for server '{server_id}': {e}")
-            # tools_from_this_server will be empty or partially filled, and returned.
+            for tool in raw_tools_data:
+                tool_def = {}
+                tool_def['name'] = tool.name
+                tool_def['tool'] = tool
+                tool_def['mcp_server_id'] = server_id
+                tool_def['mcp_server_url'] = server_config.get("url")
+                tool_def['mcp_server_command'] = server_config.get("command")
+                tool_def['mcp_server_type'] = server_type
+                tools_from_this_server.append(tool_def)
+            print_debug(f"Async Discover: Successfully discovered {len(tools_from_this_server)} tools from '{server_id}'.")
+    except Exception as e:
+        print_debug(f"Async Discover: Error during async tool discovery for server '{server_id}': {e}")
+        # tools_from_this_server will be empty or partially filled, and returned.
 
     return tools_from_this_server
 
