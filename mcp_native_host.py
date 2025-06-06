@@ -320,8 +320,8 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
             # server_id for Client constructor is not yet defined in fastmcp.Client API
             # Pass only target for now. Context might be passed via methods if needed by the library.
             async with current_fastmcp_module.Client(client_target) as client:
-                print_debug(f"Async Discover: [{server_id}] Calling 'tools/list' async...")
-                raw_tools_data = await client.call_method_jsonrpc('tools/list')
+                print_debug(f"Async Discover: [{server_id}] Calling 'tools/list'...")
+                raw_tools_data = await client.list_tools()
 
                 # Logic for processing raw_tools_data (moved from main discovery loop)
                 if isinstance(raw_tools_data, list):
