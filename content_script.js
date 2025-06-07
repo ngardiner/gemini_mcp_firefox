@@ -5,6 +5,23 @@ let isMcpClientEnabled = true;
 let observer = null; // Will be initialized later
 let targetNode = null; // Will be set later
 
+// Helper function to escape HTML characters
+function escapeHTML(str) {
+    if (str === null || str === undefined) {
+        return '';
+    }
+    return str.replace(/[&<>"']/g, function (match) {
+        switch (match) {
+            case '&': return '&amp;';
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '"': return '&quot;';
+            case "'": return '&#39;';
+            default: return match;
+        }
+    });
+}
+
 // Function to inject text and send the message using polling for the send button
 async function injectAndSendMessage(textToInject, isToolResult = false) {
     console.log(`Gemini MCP Client [DEBUG]: injectAndSendMessage called. isToolResult: ${isToolResult}, text: "${textToInject.substring(0, 50)}..."`);
@@ -19,10 +36,19 @@ async function injectAndSendMessage(textToInject, isToolResult = false) {
     }
     console.log("Gemini MCP Client [DEBUG]: Found chat input field for injection:", chatInputField);
 
-    // Set text content
-    chatInputField.textContent = textToInject;
+    if (isToolResult) {
+        // For tool results, escape the raw code and wrap it in specific HTML
+        const escapedCode = escapeHTML(textToInject);
+        const wrappedTextToInject = `<div class="mcp-tool-result"><pre><code>${escapedCode}</code></pre></div>`;
+        chatInputField.innerHTML = wrappedTextToInject;
+        console.log("Gemini MCP Client [DEBUG]: Injected HTML for tool result.");
+    } else {
+        // For prompts (plain text), inject as textContent
+        chatInputField.textContent = textToInject;
+        console.log("Gemini MCP Client [DEBUG]: Injected plain text for prompt.");
+    }
 
-    // Dispatch events
+    // Dispatch events (common for both cases)
     chatInputField.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
     chatInputField.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
     console.log("Gemini MCP Client [DEBUG]: Text injected and input/change events dispatched.");
@@ -89,59 +115,58 @@ function sendToolCallToBackground(toolCallData) {
 }
 
 // Helper function to process a found <code> element for tool calls
-function handleFoundCodeElement(codeElement, sourceType) {
+// Added isResultBlock parameter
+function handleFoundCodeElement(codeElement, sourceType, isResultBlock) {
     if (!codeElement || codeElement.dataset.mcpProcessed === 'true') {
-        // console.log(`[TOOL-DETECT]: Skipping already processed <code> element from ${sourceType} or invalid element.`);
         return;
     }
-    // Add the new console log here
-    console.log("Gemini MCP Client [DEBUG]: handleFoundCodeElement triggered. Source: " + sourceType, codeElement);
+    // Updated console log
+    console.log("Gemini MCP Client [DEBUG]: handleFoundCodeElement triggered. Source: " + sourceType + ", isResultBlock: " + isResultBlock, codeElement);
 
-    console.log(`Gemini MCP Client [TOOL-DETECT]: Candidate <code> element found by selectors. Class: ${codeElement.className}, ID: ${codeElement.id}, Source: ${sourceType}`);
-    const rawXml = codeElement.textContent ? codeElement.textContent.trim() : "";
+    codeElement.dataset.mcpProcessed = 'true'; // Mark as processed early
 
-    // The check for "function_calls" will now be done by the native host.
-    // We unconditionally send the content for further inspection.
+    let displayIdentifierText;
+    let extractedCallIdForSending = null; // For sending to background, only if not a result block
 
-    console.log(`Gemini MCP Client [TOOL-DETECT]: Extracted rawXml (sample): ${rawXml.substring(0, 200)}...`);
-    console.log("[TOOL-DETECT]: Sending content of <code> element to native host for inspection and potential tool call execution.");
-
-    // It's still possible the rawXml might not be structured as expected (e.g. not starting with '<'),
-    // but the native host will handle that.
-    // We can still log a warning if it's obviously not XML-like, as a local debug hint.
-    if (!rawXml.startsWith("<") && rawXml.length > 0) { // Added length check to avoid warning for empty textContent
-        console.warn(`Gemini MCP Client [TOOL-DETECT]: contentScript notices textContent does not start with '<'. Native host will make final determination. Content (sample): ${rawXml.substring(0,100)}...`);
-    }
-
-    let extractedCallId = null;
-    if (codeElement.dataset.callId) {
-        extractedCallId = codeElement.dataset.callId;
-        console.log(`Gemini MCP Client [TOOL-DETECT]: Found call_id on element: ${extractedCallId}`);
-    } else if (codeElement.parentElement && codeElement.parentElement.dataset.callId) {
-        extractedCallId = codeElement.parentElement.dataset.callId;
-        console.log(`Gemini MCP Client [TOOL-DETECT]: Found call_id on parentElement: ${extractedCallId}`);
+    if (isResultBlock) {
+        displayIdentifierText = "Tool Result";
+        // No call_id needed for display or sending for result blocks
+        console.log(`Gemini MCP Client [TOOL-RESULT-UI]: Processing a tool result block. Source: ${sourceType}`);
     } else {
-        console.log(`Gemini MCP Client [TOOL-DETECT]: No call_id found on element or its parent. Sending null call_id.`);
+        // This is an outgoing tool call, extract raw XML and call ID
+        const rawXml = codeElement.textContent ? codeElement.textContent.trim() : "";
+        console.log(`Gemini MCP Client [TOOL-DETECT]: Candidate <code> element found. Class: ${codeElement.className}, ID: ${codeElement.id}, Source: ${sourceType}`);
+        console.log(`Gemini MCP Client [TOOL-DETECT]: Extracted rawXml (sample): ${rawXml.substring(0, 200)}...`);
+        console.log("[TOOL-DETECT]: Sending content of <code> element to native host for inspection and potential tool call execution.");
+
+        if (!rawXml.startsWith("<") && rawXml.length > 0) {
+            console.warn(`Gemini MCP Client [TOOL-DETECT]: contentScript notices textContent does not start with '<'. Native host will make final determination. Content (sample): ${rawXml.substring(0,100)}...`);
+        }
+
+        let extractedCallId = null; // For display
+        if (codeElement.dataset.callId) {
+            extractedCallId = codeElement.dataset.callId;
+        } else if (codeElement.parentElement && codeElement.parentElement.dataset.callId) {
+            extractedCallId = codeElement.parentElement.dataset.callId;
+        }
+
+        if (extractedCallId) {
+            console.log(`Gemini MCP Client [TOOL-DETECT]: Found call_id: ${extractedCallId}`);
+            extractedCallIdForSending = extractedCallId;
+        } else {
+            console.log(`Gemini MCP Client [TOOL-DETECT]: No call_id found on element or its parent. Sending null call_id.`);
+        }
+        displayIdentifierText = `Tool Call ID: ${extractedCallId || 'N/A'}`;
+        sendToolCallToBackground({ raw_xml: rawXml, call_id: extractedCallIdForSending });
     }
 
-    sendToolCallToBackground({ raw_xml: rawXml, call_id: extractedCallId });
-
-    codeElement.dataset.mcpProcessed = 'true';
-    codeElement.style.display = 'none'; // Hide the original code element
-
-    // Create and display the horizontal bar
+    // --- Common UI Setup for both tool calls and tool results ---
     const toolCallBar = document.createElement('div');
     toolCallBar.classList.add('mcp-tool-call-bar');
-    // toolCallBar.style.position = 'relative'; // This will be handled by class mcp-tool-call-bar
 
-    const displayCallId = extractedCallId || 'N/A';
-
-    // Create text part of the bar (for toggling code)
     const toolCallBarText = document.createElement('span');
     toolCallBarText.classList.add('mcp-tool-call-bar-text');
-    toolCallBarText.textContent = `Tool Call ID: ${displayCallId}`;
-    // toolCallBarText.style.flexGrow = '1'; // Handled by class
-    // toolCallBarText.style.cursor = 'pointer'; // Handled by class
+    toolCallBarText.textContent = displayIdentifierText;
 
     // Create arrow icon for dropdown menu
     const toolCallBarArrow = document.createElement('span');
@@ -161,17 +186,32 @@ function handleFoundCodeElement(codeElement, sourceType) {
     dropdownMenu.style.right = '0';
     // Other styles like zIndex, minWidth, bg, border, padding will be in CSS.
 
-    // "Reprocess" Menu Item
-    const reprocessItem = document.createElement('div');
-    reprocessItem.classList.add('mcp-dropdown-item', 'mcp-dropdown-item-disabled');
-    reprocessItem.textContent = 'Reprocess';
-    // All styling for reprocessItem (padding, cursor, opacity) will be handled by CSS classes.
+    // --- Menu Items ---
+    // "Collapse" Menu Item (Common to both)
+    const collapseItem = document.createElement('div');
+    collapseItem.classList.add('mcp-dropdown-item');
+    collapseItem.textContent = 'Collapse';
+    collapseItem.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (effectiveTargetElement) {
+            effectiveTargetElement.style.display = 'none';
+        }
+        dropdownMenu.style.display = 'none';
+        dropdownMenu.classList.remove('mcp-active');
+    });
 
-    // Remove JS-based hover effects for reprocessItem, will be handled by CSS
-    // reprocessItem.addEventListener('mouseenter', ...);
-    // reprocessItem.addEventListener('mouseleave', ...);
+    if (!isResultBlock) {
+        // "Reprocess" Menu Item (Only for outgoing tool calls)
+        const reprocessItem = document.createElement('div');
+        reprocessItem.classList.add('mcp-dropdown-item', 'mcp-dropdown-item-disabled');
+        reprocessItem.textContent = 'Reprocess';
+        // Styling and disabled state are handled by CSS.
+        // Add click listener if it were to be enabled later:
+        // reprocessItem.addEventListener('click', (event) => { ... });
+        dropdownMenu.appendChild(reprocessItem);
+    }
 
-    dropdownMenu.appendChild(reprocessItem);
+    dropdownMenu.appendChild(collapseItem); // Collapse is always present, usually last.
     toolCallBar.appendChild(dropdownMenu);
 
     // Store references for the click listener on the wrapper/codeElement toggle
@@ -180,54 +220,81 @@ function handleFoundCodeElement(codeElement, sourceType) {
 
     // Insert the bar logic (slightly adjusted)
     const parentElement = codeElement.parentElement;
-    // More robust check for known wrapper selectors
-    const knownWrapperSelectors = [
-        '.output-component', // Gemini specific
-        '.tool-code-block',  // Common class for tool blocks
-        '.code-block-container', // Another common one
-        'div.scrollable-code-block > div.code-block' // More specific Gemini structure
-    ];
-    let wrapper = null;
-    for (const selector of knownWrapperSelectors) {
-        const closestWrapper = codeElement.closest(selector);
-        if (closestWrapper) {
-            let currentElement = codeElement;
-            while(currentElement && currentElement !== document.body) {
-                if (currentElement.parentElement === closestWrapper) {
-                    wrapper = closestWrapper;
-                    break;
-                }
-                currentElement = currentElement.parentElement;
+    // Insert the bar & determine effectiveTargetElement
+    if (isResultBlock) {
+        effectiveTargetElement = codeElement.closest('.mcp-tool-result');
+        if (effectiveTargetElement) {
+            console.log(`Gemini MCP Client [UI-UPDATE]: Identified .mcp-tool-result container as effectiveTargetElement.`, effectiveTargetElement);
+            effectiveTargetElement.parentNode.insertBefore(toolCallBar, effectiveTargetElement);
+            effectiveTargetElement.style.display = 'none'; // Initially hide the result block itself
+        } else {
+            // Fallback: should ideally not happen if DOM structure is as expected from injection
+            console.warn(`Gemini MCP Client [UI-UPDATE]: .mcp-tool-result container not found for a result block. Falling back to codeElement's parent.`, codeElement);
+            effectiveTargetElement = codeElement.parentElement; // Likely <pre>
+            if (effectiveTargetElement) {
+                 effectiveTargetElement.parentNode.insertBefore(toolCallBar, effectiveTargetElement);
+                 effectiveTargetElement.style.display = 'none';
+            } else { // Absolute fallback
+                 effectiveTargetElement = codeElement;
+                 codeElement.parentNode.insertBefore(toolCallBar, codeElement);
+                 codeElement.style.display = 'none';
             }
-            if (wrapper) break;
+        }
+    } else {
+        // Original logic for finding wrapper for outgoing tool calls
+        const parentElement = codeElement.parentElement;
+        const knownWrapperSelectors = [
+            '.output-component',
+            '.tool-code-block',
+            '.code-block-container',
+            'div.scrollable-code-block > div.code-block'
+        ];
+        let wrapper = null;
+        for (const selector of knownWrapperSelectors) {
+            const closestWrapper = codeElement.closest(selector);
+            if (closestWrapper) {
+                let currentElement = codeElement;
+                while (currentElement && currentElement !== document.body) {
+                    if (currentElement.parentElement === closestWrapper) {
+                        wrapper = closestWrapper;
+                        break;
+                    }
+                    currentElement = currentElement.parentElement;
+                }
+                if (wrapper) break;
+            }
+        }
+
+        if (wrapper) {
+            console.log(`Gemini MCP Client [UI-UPDATE]: Found wrapper for outgoing tool call:`, wrapper);
+            wrapper.parentNode.insertBefore(toolCallBar, wrapper);
+            wrapper.style.display = 'none';
+            effectiveTargetElement = wrapper;
+        } else {
+            console.log(`Gemini MCP Client [UI-UPDATE]: No specific wrapper found for outgoing tool call. Inserting bar before code element.`);
+            if (parentElement) {
+                parentElement.insertBefore(toolCallBar, codeElement);
+            } else { // Should not happen with valid codeElement
+                 document.body.insertBefore(toolCallBar, codeElement);
+            }
+            codeElement.style.display = 'none'; // Original element is always a code tag here
+            effectiveTargetElement = codeElement;
         }
     }
 
-    if (wrapper) {
-        console.log(`Gemini MCP Client [UI-UPDATE]: Found wrapper for code element:`, wrapper);
-        wrapper.parentNode.insertBefore(toolCallBar, wrapper);
-        wrapper.style.display = 'none';
-        effectiveTargetElement = wrapper;
+    // Ensure effectiveTargetElement is set before attaching click listener
+    if (!effectiveTargetElement) {
+        console.error("Gemini MCP Client [ERROR]: effectiveTargetElement is null, cannot attach visibility toggle listener.", codeElement);
+        // Potentially skip adding the text click listener or handle error
     } else {
-        console.log(`Gemini MCP Client [UI-UPDATE]: No specific wrapper found. Inserting bar before code element.`);
-        parentElement.insertBefore(toolCallBar, codeElement);
-        // codeElement is already hidden by: codeElement.style.display = 'none';
-        effectiveTargetElement = codeElement;
+         isCodeCurrentlyHidden = effectiveTargetElement.style.display === 'none';
+         toolCallBarText.addEventListener('click', () => {
+            if (effectiveTargetElement) { // Double check
+                const isHidden = effectiveTargetElement.style.display === 'none';
+                effectiveTargetElement.style.display = isHidden ? '' : 'none';
+            }
+        });
     }
-
-    isCodeCurrentlyHidden = effectiveTargetElement.style.display === 'none';
-
-
-    isCodeCurrentlyHidden = effectiveTargetElement.style.display === 'none';
-
-    // Event Listener for Toggling Code Visibility (on text part)
-    // Defined here, after effectiveTargetElement is known.
-    toolCallBarText.addEventListener('click', () => {
-        const isHidden = effectiveTargetElement.style.display === 'none';
-        effectiveTargetElement.style.display = isHidden ? '' : 'none';
-        // If you want to change the main text area's arrow or something upon code toggle:
-        // e.g., toolCallBarText.parentElement.querySelector('.some-indicator-on-text').innerHTML = isHidden ? 'Hide Code' : 'Show Code';
-    });
 
     // Event Listener for Toggling Dropdown Menu (on arrow icon)
     // Defined here, inside handleFoundCodeElement, using local variables.
@@ -496,37 +563,45 @@ function finalProcessMutations(mutationsList, _observer) {
                 if (addedNode.nodeType === Node.ELEMENT_NODE) {
                     // Define the processing for an added node (can be a helper)
                     const processAddedNode = (node) => {
-                        // Check if the node itself is a target <code> element
+                        // Case 1: Node itself is an outgoing tool call <code> element
                         if (node.matches && (node.matches('code.code-container.formatted') || node.matches('code[class*="code-container"][class*="formatted"]'))) {
-                            // Check if it's within a .model-response-text if that's a required parent
-                             if (node.closest('.model-response-text')) {
-                                handleFoundCodeElement(node, "addedNode directly matching <code> and in .model-response-text");
-                             } else {
-                                // console.log("[TOOL-DETECT]: Found matching <code> but not within .model-response-text:", node);
-                             }
-                        }
-                        // Find all relevant <code> elements within the added node's descendants
-                        const codeElements = node.querySelectorAll('code.code-container.formatted, code[class*="code-container"][class*="formatted"]');
-                        codeElements.forEach(codeEl => {
-                            // Ensure this code element is within a .model-response-text context
-                            if (codeEl.closest('.model-response-text')) {
-                                handleFoundCodeElement(codeEl, "childList querySelectorAll in .model-response-text");
-                            } else {
-                                // console.log("[TOOL-DETECT]: Found matching <code> via querySelectorAll, but not within .model-response-text:", codeEl);
+                            if (node.closest('.model-response-text')) { // Context check
+                                handleFoundCodeElement(node, "addedNode directly matching outgoing <code>", false);
                             }
-                        });
+                        // Case 2: Node itself is an injected tool result container <div>
+                        } else if (node.matches && node.matches('div.mcp-tool-result')) {
+                            const codeEl = node.querySelector('pre code');
+                            if (codeEl) {
+                                handleFoundCodeElement(codeEl, "addedNode matching .mcp-tool-result", true);
+                            }
+                        } else {
+                            // Case 3: Find outgoing tool call <code> elements within the added node's descendants
+                            const outgoingCodeElements = node.querySelectorAll('code.code-container.formatted, code[class*="code-container"][class*="formatted"]');
+                            outgoingCodeElements.forEach(codeEl => {
+                                if (codeEl.closest('.model-response-text') && !codeEl.closest('div.mcp-tool-result')) { // Ensure not part of an already handled result block
+                                    handleFoundCodeElement(codeEl, "childList querySelectorAll outgoing <code>", false);
+                                }
+                            });
+
+                            // Case 4: Find injected tool result <code> elements within the added node's descendants
+                            // This is important if the div.mcp-tool-result is part of a larger fragment added to the DOM.
+                            const resultContainerElements = node.querySelectorAll('div.mcp-tool-result');
+                            resultContainerElements.forEach(containerEl => {
+                                const codeEl = containerEl.querySelector('pre code');
+                                if (codeEl) {
+                                     handleFoundCodeElement(codeEl, "childList querySelectorAll .mcp-tool-result code", true);
+                                }
+                            });
+                        }
                     };
                     processAddedNode(addedNode);
                 }
             });
         }
-        // CharacterData handling is removed as per plan focus on childList and subtree for structural additions
-        // else if (mutation.type === 'characterData') {
-        // ...
-        // }
     });
 }
 
+// Keep observerCallback and observerOptions the same, unless characterData or attributes become necessary.
 const observerCallback = finalProcessMutations;
 
 const observerOptions = {
