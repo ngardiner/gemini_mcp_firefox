@@ -133,6 +133,8 @@ If you are making a final response to the user, or if you do not need to use a t
 <\SYSTEM>
 
 User Interaction Starts here:
+
+Please confirm that you are able to harness the power of the tooling provided and re-iterate that you are ready for further instruction from the user and awaiting their direction.
 """
 
 SERVER_CONFIGURATIONS = []
