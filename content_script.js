@@ -94,6 +94,8 @@ function handleFoundCodeElement(codeElement, sourceType) {
         // console.log(`[TOOL-DETECT]: Skipping already processed <code> element from ${sourceType} or invalid element.`);
         return;
     }
+    // Add the new console log here
+    console.log("Gemini MCP Client [DEBUG]: handleFoundCodeElement triggered. Source: " + sourceType, codeElement);
 
     console.log(`Gemini MCP Client [TOOL-DETECT]: Candidate <code> element found by selectors. Class: ${codeElement.className}, ID: ${codeElement.id}, Source: ${sourceType}`);
     const rawXml = codeElement.textContent ? codeElement.textContent.trim() : "";
@@ -127,8 +129,6 @@ function handleFoundCodeElement(codeElement, sourceType) {
     codeElement.dataset.mcpProcessed = 'true';
     codeElement.style.display = 'none'; // Hide the original code element
 
-    // Create and display the horizontal bar
-    const toolCallBar = document.createElement('div');
     // Create and display the horizontal bar
     const toolCallBar = document.createElement('div');
     toolCallBar.classList.add('mcp-tool-call-bar');
@@ -174,22 +174,6 @@ function handleFoundCodeElement(codeElement, sourceType) {
     dropdownMenu.appendChild(reprocessItem);
     toolCallBar.appendChild(dropdownMenu);
 
-    // Event Listener for Toggling Code Visibility (on text part)
-    toolCallBarText.addEventListener('click', () => {
-        const targetElementToToggle = wrapper || codeElement;
-        const isHidden = targetElementToToggle.style.display === 'none';
-        targetElementToToggle.style.display = isHidden ? '' : 'none';
-        // Update arrow on the main bar if needed (optional, as dropdown arrow is separate)
-        // For now, the main bar click won't change any arrow, only the code visibility.
-        // The visual cue for code visibility is the code appearing/disappearing.
-    });
-
-    // Event Listener for Toggling Dropdown Menu (on arrow icon)
-    toolCallBarArrow.addEventListener('click', (event) => {
-        event.stopPropagation(); // Prevent code toggle listener
-        dropdownMenu.style.display = dropdownMenu.style.display === 'none' ? 'block' : 'none';
-    });
-
     // Store references for the click listener on the wrapper/codeElement toggle
     let effectiveTargetElement = null; // This will be 'wrapper' or 'codeElement'
     let isCodeCurrentlyHidden = true; // Initial state
@@ -233,59 +217,69 @@ function handleFoundCodeElement(codeElement, sourceType) {
 
     isCodeCurrentlyHidden = effectiveTargetElement.style.display === 'none';
 
-    // Update the click listener for toolCallBarText to use effectiveTargetElement
-    // This replaces the previous generic click listener on toolCallBar
-    toolCallBarText.removeEventListener('click', () => {}); // Remove if any old one was there by mistake
+
+    isCodeCurrentlyHidden = effectiveTargetElement.style.display === 'none';
+
+    // Event Listener for Toggling Code Visibility (on text part)
+    // Defined here, after effectiveTargetElement is known.
     toolCallBarText.addEventListener('click', () => {
         const isHidden = effectiveTargetElement.style.display === 'none';
         effectiveTargetElement.style.display = isHidden ? '' : 'none';
-        // The arrow for code visibility is not part of this design iteration.
-        // The dropdown arrow (toolCallBarArrow) is for the menu.
+        // If you want to change the main text area's arrow or something upon code toggle:
+        // e.g., toolCallBarText.parentElement.querySelector('.some-indicator-on-text').innerHTML = isHidden ? 'Hide Code' : 'Show Code';
     });
 
+    // Event Listener for Toggling Dropdown Menu (on arrow icon)
+    // Defined here, inside handleFoundCodeElement, using local variables.
+    toolCallBarArrow.addEventListener('click', (event) => {
+        event.stopPropagation(); // Important: Prevents the document click listener from immediately closing the menu.
+                                 // Also prevents code toggle if arrow is considered part of toolCallBarText's parent for event bubbling.
+        const isActive = dropdownMenu.classList.contains('mcp-active');
+
+        // First, close all other active dropdowns
+        document.querySelectorAll('.mcp-dropdown-menu.mcp-active').forEach(otherDropdown => {
+            if (otherDropdown !== dropdownMenu) { // Don't close the current one yet
+                otherDropdown.style.display = 'none';
+                otherDropdown.classList.remove('mcp-active');
+                // Optionally reset arrow for other dropdowns
+                const otherArrow = otherDropdown.closest('.mcp-tool-call-bar')?.querySelector('.mcp-tool-call-bar-arrow');
+                if (otherArrow) {
+                    // otherArrow.innerHTML = '▼'; // Reset if you have stateful arrows
+                }
+            }
+        });
+
+        if (isActive) {
+            dropdownMenu.style.display = 'none';
+            dropdownMenu.classList.remove('mcp-active');
+            // toolCallBarArrow.innerHTML = '▼'; // Change arrow back if stateful
+        } else {
+            dropdownMenu.style.display = 'block';
+            dropdownMenu.classList.add('mcp-active');
+            // toolCallBarArrow.innerHTML = '▶'; // Change arrow to indicate open if stateful
+        }
+    });
 
     console.log(`Gemini MCP Client [TOOL-DETECT]: Marked <code> element as processed, hid original, and inserted tool call bar with dropdown. Class: ${codeElement.className}, ID: ${codeElement.id}`);
 }
 
-// Close dropdown if clicked outside
+// Close dropdown if clicked outside - This remains a global listener.
 document.addEventListener('click', function(event) {
-    const openDropdowns = document.querySelectorAll('.mcp-dropdown-menu.mcp-active'); // Only target active dropdowns
+    const openDropdowns = document.querySelectorAll('.mcp-dropdown-menu.mcp-active');
     openDropdowns.forEach(dropdown => {
-        const bar = dropdown.closest('.mcp-tool-call-bar');
-        if (bar && !bar.contains(event.target)) { // Click was outside the entire bar
+        const owningBar = dropdown.closest('.mcp-tool-call-bar');
+        // If the click is outside the owning bar of this specific active dropdown, close it.
+        if (owningBar && !owningBar.contains(event.target)) {
             dropdown.style.display = 'none';
             dropdown.classList.remove('mcp-active');
-            // Potentially reset arrow icon if it changes state when menu is open/closed
-            const arrow = bar.querySelector('.mcp-tool-call-bar-arrow');
+            // Optionally reset arrow for this dropdown
+            const arrow = owningBar.querySelector('.mcp-tool-call-bar-arrow');
             if (arrow) {
-                // Example: arrow.innerHTML = '▼'; // Reset to down arrow
+                // arrow.innerHTML = '▼'; // Reset if you have stateful arrows
             }
         }
     });
 });
-
-// Modified Event Listener for Toggling Dropdown Menu (on arrow icon)
-toolCallBarArrow.addEventListener('click', (event) => {
-    event.stopPropagation(); // Prevent code toggle listener and document click listener
-    const isActive = dropdownMenu.classList.contains('mcp-active');
-    if (isActive) {
-        dropdownMenu.style.display = 'none';
-        dropdownMenu.classList.remove('mcp-active');
-        // toolCallBarArrow.innerHTML = '▼'; // Change arrow back
-    } else {
-        // Close other open dropdowns first
-        document.querySelectorAll('.mcp-dropdown-menu.mcp-active').forEach(od => {
-            od.style.display = 'none';
-            od.classList.remove('mcp-active');
-            const otherArrow = od.closest('.mcp-tool-call-bar')?.querySelector('.mcp-tool-call-bar-arrow');
-            // if (otherArrow) otherArrow.innerHTML = '▼';
-        });
-        dropdownMenu.style.display = 'block';
-        dropdownMenu.classList.add('mcp-active');
-        // toolCallBarArrow.innerHTML = '▶'; // Change arrow to indicate open
-    }
-});
-
 
 // Function to handle responses from the background script (coming from native host or for prompts)
 function handleBackgroundMessages(message) {
