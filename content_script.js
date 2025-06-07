@@ -138,19 +138,16 @@ function processPotentialMessageContainer(containerElement) {
 
     reconstructedXml = reconstructedXml.trim(); // Trim whitespace
 
-    // Unescape HTML entities like &lt; and &gt; to get actual XML tags for reliable checking
-    // It's crucial to do this *before* checking startsWith/endsWith
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = reconstructedXml;
-    const unescapedXml = tempDiv.textContent || tempDiv.innerText || "";
+    // Use the new unescapeHtmlEntities function
+    const unescapedXml = unescapeHtmlEntities(reconstructedXml);
 
     console.log("Gemini MCP Client [DEBUG]: Reconstructed and Unescaped XML from message container:", unescapedXml.substring(0, 200) + "...");
 
-    // Check if it's a tool result
-    if (unescapedXml.startsWith("<tool_result") && unescapedXml.endsWith("</tool_result>")) {
+    // Check if it's a tool result, using trim() on the unescaped XML
+    if (unescapedXml.trim().startsWith("<tool_result") && unescapedXml.trim().endsWith("</tool_result>")) {
         console.log("Gemini MCP Client [DEBUG]: Identified tool result in message container:", containerElement);
         // Mark the container as processed by this specific path to avoid re-entry from other observers if any overlap
-        // containerElement.dataset.mcpProcessed = 'true'; // Or handle this within handleFoundCodeElement
+        // containerElement.dataset.mcpProcessed = 'true'; // This is handled by handleFoundCodeElement on the passedElement
 
         // Call handleFoundCodeElement, passing the container as the element to be replaced,
         // and the reconstructed/unescaped XML.
