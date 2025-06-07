@@ -22,6 +22,14 @@ function escapeHTML(str) {
     });
 }
 
+// Function to unescape HTML entities (should be defined before first use)
+function unescapeHtmlEntities(htmlStringWithEntities) {
+    const textArea = document.createElement('textarea');
+    textArea.innerHTML = htmlStringWithEntities;
+    // console.log("Gemini MCP Client [DEBUG]: unescapeHtmlEntities - input:", String(htmlStringWithEntities).substring(0,100), "output:", String(textArea.value).substring(0,100));
+    return textArea.value;
+}
+
 // Function to inject text and send the message using polling for the send button
 async function injectAndSendMessage(textToInject, isToolResult = false) {
     console.log(`Gemini MCP Client [DEBUG]: injectAndSendMessage called. isToolResult: ${isToolResult}, text: "${textToInject.substring(0, 50)}..."`);
