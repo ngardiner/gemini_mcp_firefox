@@ -125,8 +125,167 @@ function handleFoundCodeElement(codeElement, sourceType) {
     sendToolCallToBackground({ raw_xml: rawXml, call_id: extractedCallId });
 
     codeElement.dataset.mcpProcessed = 'true';
-    console.log(`Gemini MCP Client [TOOL-DETECT]: Marked <code> element as processed and sent to background. Class: ${codeElement.className}, ID: ${codeElement.id}`);
+    codeElement.style.display = 'none'; // Hide the original code element
+
+    // Create and display the horizontal bar
+    const toolCallBar = document.createElement('div');
+    // Create and display the horizontal bar
+    const toolCallBar = document.createElement('div');
+    toolCallBar.classList.add('mcp-tool-call-bar');
+    // toolCallBar.style.position = 'relative'; // This will be handled by class mcp-tool-call-bar
+
+    const displayCallId = extractedCallId || 'N/A';
+
+    // Create text part of the bar (for toggling code)
+    const toolCallBarText = document.createElement('span');
+    toolCallBarText.classList.add('mcp-tool-call-bar-text');
+    toolCallBarText.textContent = `Tool Call ID: ${displayCallId}`;
+    // toolCallBarText.style.flexGrow = '1'; // Handled by class
+    // toolCallBarText.style.cursor = 'pointer'; // Handled by class
+
+    // Create arrow icon for dropdown menu
+    const toolCallBarArrow = document.createElement('span');
+    toolCallBarArrow.classList.add('mcp-tool-call-bar-arrow');
+    toolCallBarArrow.innerHTML = '▼'; // Down arrow U+25BC
+
+    toolCallBar.appendChild(toolCallBarText);
+    toolCallBar.appendChild(toolCallBarArrow);
+
+    // Create Dropdown Menu
+    const dropdownMenu = document.createElement('div');
+    dropdownMenu.classList.add('mcp-dropdown-menu'); // Already added, but ensure it's the primary way
+    dropdownMenu.style.display = 'none'; // Dynamic, remains inline
+    // Static positioning like top/right will be in CSS if truly static, or remain inline if calculated/simple.
+    // For now, keeping top/right inline as it's simple and tied to parent.
+    dropdownMenu.style.top = '100%';
+    dropdownMenu.style.right = '0';
+    // Other styles like zIndex, minWidth, bg, border, padding will be in CSS.
+
+    // "Reprocess" Menu Item
+    const reprocessItem = document.createElement('div');
+    reprocessItem.classList.add('mcp-dropdown-item', 'mcp-dropdown-item-disabled');
+    reprocessItem.textContent = 'Reprocess';
+    // All styling for reprocessItem (padding, cursor, opacity) will be handled by CSS classes.
+
+    // Remove JS-based hover effects for reprocessItem, will be handled by CSS
+    // reprocessItem.addEventListener('mouseenter', ...);
+    // reprocessItem.addEventListener('mouseleave', ...);
+
+    dropdownMenu.appendChild(reprocessItem);
+    toolCallBar.appendChild(dropdownMenu);
+
+    // Event Listener for Toggling Code Visibility (on text part)
+    toolCallBarText.addEventListener('click', () => {
+        const targetElementToToggle = wrapper || codeElement;
+        const isHidden = targetElementToToggle.style.display === 'none';
+        targetElementToToggle.style.display = isHidden ? '' : 'none';
+        // Update arrow on the main bar if needed (optional, as dropdown arrow is separate)
+        // For now, the main bar click won't change any arrow, only the code visibility.
+        // The visual cue for code visibility is the code appearing/disappearing.
+    });
+
+    // Event Listener for Toggling Dropdown Menu (on arrow icon)
+    toolCallBarArrow.addEventListener('click', (event) => {
+        event.stopPropagation(); // Prevent code toggle listener
+        dropdownMenu.style.display = dropdownMenu.style.display === 'none' ? 'block' : 'none';
+    });
+
+    // Store references for the click listener on the wrapper/codeElement toggle
+    let effectiveTargetElement = null; // This will be 'wrapper' or 'codeElement'
+    let isCodeCurrentlyHidden = true; // Initial state
+
+    // Insert the bar logic (slightly adjusted)
+    const parentElement = codeElement.parentElement;
+    // More robust check for known wrapper selectors
+    const knownWrapperSelectors = [
+        '.output-component', // Gemini specific
+        '.tool-code-block',  // Common class for tool blocks
+        '.code-block-container', // Another common one
+        'div.scrollable-code-block > div.code-block' // More specific Gemini structure
+    ];
+    let wrapper = null;
+    for (const selector of knownWrapperSelectors) {
+        const closestWrapper = codeElement.closest(selector);
+        if (closestWrapper) {
+            let currentElement = codeElement;
+            while(currentElement && currentElement !== document.body) {
+                if (currentElement.parentElement === closestWrapper) {
+                    wrapper = closestWrapper;
+                    break;
+                }
+                currentElement = currentElement.parentElement;
+            }
+            if (wrapper) break;
+        }
+    }
+
+    if (wrapper) {
+        console.log(`Gemini MCP Client [UI-UPDATE]: Found wrapper for code element:`, wrapper);
+        wrapper.parentNode.insertBefore(toolCallBar, wrapper);
+        wrapper.style.display = 'none';
+        effectiveTargetElement = wrapper;
+    } else {
+        console.log(`Gemini MCP Client [UI-UPDATE]: No specific wrapper found. Inserting bar before code element.`);
+        parentElement.insertBefore(toolCallBar, codeElement);
+        // codeElement is already hidden by: codeElement.style.display = 'none';
+        effectiveTargetElement = codeElement;
+    }
+
+    isCodeCurrentlyHidden = effectiveTargetElement.style.display === 'none';
+
+    // Update the click listener for toolCallBarText to use effectiveTargetElement
+    // This replaces the previous generic click listener on toolCallBar
+    toolCallBarText.removeEventListener('click', () => {}); // Remove if any old one was there by mistake
+    toolCallBarText.addEventListener('click', () => {
+        const isHidden = effectiveTargetElement.style.display === 'none';
+        effectiveTargetElement.style.display = isHidden ? '' : 'none';
+        // The arrow for code visibility is not part of this design iteration.
+        // The dropdown arrow (toolCallBarArrow) is for the menu.
+    });
+
+
+    console.log(`Gemini MCP Client [TOOL-DETECT]: Marked <code> element as processed, hid original, and inserted tool call bar with dropdown. Class: ${codeElement.className}, ID: ${codeElement.id}`);
 }
+
+// Close dropdown if clicked outside
+document.addEventListener('click', function(event) {
+    const openDropdowns = document.querySelectorAll('.mcp-dropdown-menu.mcp-active'); // Only target active dropdowns
+    openDropdowns.forEach(dropdown => {
+        const bar = dropdown.closest('.mcp-tool-call-bar');
+        if (bar && !bar.contains(event.target)) { // Click was outside the entire bar
+            dropdown.style.display = 'none';
+            dropdown.classList.remove('mcp-active');
+            // Potentially reset arrow icon if it changes state when menu is open/closed
+            const arrow = bar.querySelector('.mcp-tool-call-bar-arrow');
+            if (arrow) {
+                // Example: arrow.innerHTML = '▼'; // Reset to down arrow
+            }
+        }
+    });
+});
+
+// Modified Event Listener for Toggling Dropdown Menu (on arrow icon)
+toolCallBarArrow.addEventListener('click', (event) => {
+    event.stopPropagation(); // Prevent code toggle listener and document click listener
+    const isActive = dropdownMenu.classList.contains('mcp-active');
+    if (isActive) {
+        dropdownMenu.style.display = 'none';
+        dropdownMenu.classList.remove('mcp-active');
+        // toolCallBarArrow.innerHTML = '▼'; // Change arrow back
+    } else {
+        // Close other open dropdowns first
+        document.querySelectorAll('.mcp-dropdown-menu.mcp-active').forEach(od => {
+            od.style.display = 'none';
+            od.classList.remove('mcp-active');
+            const otherArrow = od.closest('.mcp-tool-call-bar')?.querySelector('.mcp-tool-call-bar-arrow');
+            // if (otherArrow) otherArrow.innerHTML = '▼';
+        });
+        dropdownMenu.style.display = 'block';
+        dropdownMenu.classList.add('mcp-active');
+        // toolCallBarArrow.innerHTML = '▶'; // Change arrow to indicate open
+    }
+});
+
 
 // Function to handle responses from the background script (coming from native host or for prompts)
 function handleBackgroundMessages(message) {
@@ -171,8 +330,11 @@ function handleBackgroundMessages(message) {
 
 // Function to create and inject UI elements
 function setupUI() {
+  injectStyles(); // Call the function to inject CSS styles
+
   const uiContainer = document.createElement('div');
   uiContainer.id = 'mcp-client-ui-container';
+  // Most of uiContainer styles can also be moved to CSS if it gets its own class
   uiContainer.style.position = 'fixed';
   uiContainer.style.top = '10px';
   uiContainer.style.right = '10px';
@@ -180,7 +342,7 @@ function setupUI() {
   uiContainer.style.padding = '10px';
   uiContainer.style.border = '1px solid #ccc';
   uiContainer.style.borderRadius = '5px';
-  uiContainer.style.zIndex = '9999';
+  uiContainer.style.zIndex = '9999'; // Keep z-index high
   uiContainer.style.fontFamily = 'Arial, sans-serif';
   uiContainer.style.fontSize = '14px';
   uiContainer.style.color = '#333';
@@ -189,13 +351,13 @@ function setupUI() {
   const toggleLabel = document.createElement('label');
   toggleLabel.htmlFor = 'mcp-client-toggle';
   toggleLabel.textContent = 'Enable MCP Client: ';
-  toggleLabel.style.marginRight = '5px';
+  toggleLabel.style.marginRight = '5px'; // Simple style, can remain inline
 
   const toggleSwitch = document.createElement('input');
   toggleSwitch.type = 'checkbox';
   toggleSwitch.id = 'mcp-client-toggle';
   toggleSwitch.checked = isMcpClientEnabled;
-  toggleSwitch.style.verticalAlign = 'middle';
+  toggleSwitch.style.verticalAlign = 'middle'; // Simple style, can remain inline
 
   toggleSwitch.addEventListener('change', () => {
     isMcpClientEnabled = toggleSwitch.checked;
@@ -240,6 +402,86 @@ function setupUI() {
   uiContainer.appendChild(dummyPromptButton);
   document.body.appendChild(uiContainer);
   console.log("Gemini MCP Client: UI elements injected.");
+}
+
+// Style injection function
+let stylesInjected = false;
+function injectStyles() {
+    if (stylesInjected) return;
+
+    const css = `
+        .mcp-tool-call-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 10px;
+            margin: 8px 0;
+            background-color: #f0f0f0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-family: "SF Mono", "Consolas", "Menlo", monospace;
+            font-size: 13px;
+            color: #333;
+            position: relative; /* For dropdown positioning */
+        }
+        .mcp-tool-call-bar-text {
+            cursor: pointer;
+            flex-grow: 1;
+            color: #222; /* Darker text for better readability */
+        }
+        .mcp-tool-call-bar-text:hover {
+            color: #000;
+        }
+        .mcp-tool-call-bar-arrow {
+            cursor: pointer;
+            margin-left: 10px;
+            font-size: 12px; /* Slightly larger for easier clicking */
+            padding: 3px 6px; /* More clickable area */
+            border-radius: 3px;
+            user-select: none; /* Prevent text selection */
+            transition: background-color 0.2s ease-in-out;
+        }
+        .mcp-tool-call-bar-arrow:hover {
+            background-color: #e0e0e0;
+        }
+        .mcp-dropdown-menu {
+            /* display: none; is set inline */
+            position: absolute;
+            /* top: 100%; right: 0; are set inline */
+            background-color: #ffffff;
+            border: 1px solid #b0b0b0; /* Slightly softer border */
+            border-radius: 4px;
+            min-width: 160px; /* Increased min-width */
+            z-index: 10000; /* Ensure it's on top */
+            box-shadow: 0 3px 6px rgba(0,0,0,0.12); /* Softer shadow */
+            padding: 5px 0; /* Vertical padding for the menu itself */
+        }
+        .mcp-dropdown-item {
+            padding: 9px 15px; /* More padding for items */
+            font-size: 13px;
+            color: #333;
+            cursor: pointer;
+            display: block; /* Ensure it takes full width */
+            transition: background-color 0.15s ease-in-out;
+        }
+        .mcp-dropdown-item:hover {
+            background-color: #f5f5f5; /* Standard hover for active items */
+        }
+        .mcp-dropdown-item-disabled {
+            color: #999999; /* Lighter text for disabled */
+            opacity: 0.7; /* Slightly more visible disabled state */
+            cursor: not-allowed;
+        }
+        .mcp-dropdown-item-disabled:hover {
+            background-color: transparent !important; /* Important to override general hover */
+        }
+    `;
+    const styleSheet = document.createElement("style");
+    styleSheet.id = "mcp-client-styles"; // ID to check if already injected
+    styleSheet.textContent = css;
+    document.head.appendChild(styleSheet);
+    stylesInjected = true;
+    console.log("Gemini MCP Client: Custom styles injected.");
 }
 
 // --- MutationObserver Related Functions ---
