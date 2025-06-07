@@ -1,19 +1,18 @@
 # Gemini MCP Client (Firefox Extension)
 
-This is a lightweight Firefox extension that monitors `gemini.google.com` for chat responses from Gemini. It aims to detect and intercept tool calls made by Gemini, forwarding them to a local Python script via Native Messaging. The Python script can then process these calls and optionally send responses back to the extension to be injected into Gemini.
+This is a lightweight Firefox extension that brings MCP capability to the Gemini Web Interface. It aims to detect and intercept tool calls made by Gemini, process these calls and optionally send responses back to Gemini.
+
+Full credit to SuperAssistant for the initial inspiration. I created this interface after experiencing performance issues with the MCP-SuperAssistant extension on Chrome, which led me to make certain architectural changes to ensure these and other MCP-SuperAgent issues were addressed:
+   * This project uses Firefox, which is considerably lighter than Chrome in terms of plugin architecture
+   * This project allows multiple MCP Servers to be defined, which provides greater flexibility
+   * This project doesn't remove Gemini's ability to call the native Workspace capabilities
+   * This project uses a back-end Python script for the processing of calls and responses, minimising the overhead experienced when trying to process these in browser extension space
 
 ## Core Functionality
 
-*   Injects a content script into `gemini.google.com`.
-*   Uses a `MutationObserver` to watch for new messages in the chat.
-*   Identifies potential tool-related `<code>` blocks within new messages using CSS selectors.
-*   Extracts the raw `textContent` from these `<code>` blocks and any associated `data-call-id` attributes found on the element or its parent.
-*   This raw text content and `call_id` are sent to the Python native host, without further parsing or validation in JavaScript.
-*   The background script forwards this data to the Python native host script (`mcp_native_host.py`).
-*   The Python script is responsible for parsing the `raw_xml` (the textContent from the `<code>` block) to determine if it's a valid tool call, extract tool names, parameters, and the `call_id` from the XML content itself.
-*   The Python script orchestrates tool discovery (`tools/list`) and tool execution by delegating to the `fastmcp` library (currently using an internal mock of `fastmcp` for development).
-*   **Visual DOM Markers:** After a `<code>` element's content is sent from the content script, the element is marked with `data-mcp-processed="true"`.
-*   The Python script logs its actions and can send responses (tool results or errors) back to the extension.
+*   The Python script manages MCP server connectivity and orchestrates tool discovery (`tools/list`) for configured MCP servers.
+*   Browser extension monitors chat responses on `gemini.google.com`, and identifies potential tool-related `<code>` blocks within new messages.
+*   The Python script is responsible for parsing the tool calls to determine if it's a valid tool call, extract tool names, parameters, and the `call_id` from the XML content itself.
 *   The architecture supports bidirectional communication, allowing the Python script to send a response back to the extension, which can then inject it into the Gemini chat window and auto-submit.
 
 ## Setup Instructions
@@ -225,10 +224,4 @@ This dynamic discovery allows for a more flexible system where tools are managed
 10. `background.js` receives any response from the native host and forwards it to `content_script.js`.
 11. `content_script.js` injects the response text into Gemini's input field and attempts to submit it.
 
-## Future Development
-
-*   **Integrate actual `fastmcp` library:** Replace the current mock `fastmcp` in `mcp_native_host.py` with the real library to enable communication with actual MCP-compliant tool servers. The Python script's role in performing the final parsing of XML from Gemini and then orchestrating `fastmcp` calls is now well-defined.
-*   The shift of detailed parsing and validation logic from `content_script.js` to `mcp_native_host.py` has simplified the extension and centralized complex processing in Python, addressing earlier concerns about JavaScript parsing robustness.
-*   Robust error handling and user feedback within the extension for errors originating from the native host or MCP servers.
-*   Refining DOM selectors for Gemini's chat input and send button for better reliability.
 ```
