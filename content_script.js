@@ -254,6 +254,10 @@ function handleFoundCodeElement(codeElement, sourceType) {
             dropdownMenu.classList.remove('mcp-active');
             // toolCallBarArrow.innerHTML = '▼'; // Change arrow back if stateful
         } else {
+            // Ensure the code block is visible before showing the menu
+            if (effectiveTargetElement) {
+                effectiveTargetElement.style.display = ''; // Revert to default display (block, inline, etc.)
+            }
             dropdownMenu.style.display = 'block';
             dropdownMenu.classList.add('mcp-active');
             // toolCallBarArrow.innerHTML = '▶'; // Change arrow to indicate open if stateful
