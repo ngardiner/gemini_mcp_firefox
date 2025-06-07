@@ -17,8 +17,10 @@ def run_async_task(task):
     return asyncio.run(task)
 
 def print_debug(message):
-    sys.stderr.write(str(message) + '\n')
-    sys.stderr.flush()
+    # Pass - this will be a no-op unless selectively re-enabled for specific debugging needs.
+    # sys.stderr.write(str(message) + '\n')
+    # sys.stderr.flush()
+    pass
 
 # Base system prompt including a placeholder for the dynamic tool list
 BASE_SYSTEM_PROMPT = r"""
@@ -165,35 +167,35 @@ def send_example_response(original_message_tab_id, received_payload):
         "original_request": received_payload
     }
     message_to_send = {"tabId": original_message_tab_id, "payload": response_payload}
-    print_debug(f"If uncommented, would send to extension: {json.dumps(message_to_send)}")
+    # print_debug(f"If uncommented, would send to extension: {json.dumps(message_to_send)}")
 
 def load_server_configurations(config_filename="mcp_servers_config.json"):
     global SERVER_CONFIGURATIONS; SERVER_CONFIGURATIONS = []
     script_dir = os.path.dirname(os.path.abspath(__file__)); config_path = os.path.join(script_dir, config_filename)
-    print_debug(f"Attempting to load MCP server configurations from: {config_path}")
-    if not os.path.exists(config_path): print_debug(f"Error: Server configuration file not found at {config_path}"); return False
+    sys.stderr.write(f"Attempting to load MCP server configurations from: {config_path}\n"); sys.stderr.flush() # Keep critical
+    if not os.path.exists(config_path): sys.stderr.write(f"Error: Server configuration file not found at {config_path}\n"); sys.stderr.flush(); return False # Keep critical
     try:
         with open(config_path, 'r') as f: data = json.load(f)
         server_list_from_file = data.get("mcpServers")
-        if not isinstance(server_list_from_file, list): print_debug(f"Error: 'mcpServers' field in {config_path} is not a list or is missing."); return False
+        if not isinstance(server_list_from_file, list): sys.stderr.write(f"Error: 'mcpServers' field in {config_path} is not a list or is missing.\n"); sys.stderr.flush(); return False # Keep critical
         valid_servers = []
         for i, server_def in enumerate(server_list_from_file):
-            if not isinstance(server_def, dict): print_debug(f"Warning: Server definition at index {i} is not a dict. Skipping."); continue
+            if not isinstance(server_def, dict): sys.stderr.write(f"Warning: Server definition at index {i} is not a dict. Skipping.\n"); sys.stderr.flush(); continue # Keep warning
             server_id = server_def.get("id"); server_type = server_def.get("type")
-            if not server_id or not isinstance(server_id, str): print_debug(f"Warning: Server def at index {i} missing 'id'. Skipping: {str(server_def)[:100]}"); continue
-            if not server_type or not isinstance(server_type, str): print_debug(f"Warning: Server '{server_id}' missing 'type'. Skipping."); continue
+            if not server_id or not isinstance(server_id, str): sys.stderr.write(f"Warning: Server def at index {i} missing 'id'. Skipping: {str(server_def)[:100]}\n"); sys.stderr.flush(); continue # Keep warning
+            if not server_type or not isinstance(server_type, str): sys.stderr.write(f"Warning: Server '{server_id}' missing 'type'. Skipping.\n"); sys.stderr.flush(); continue # Keep warning
             is_valid_type = True
             if server_type == "stdio":
-                if not server_def.get("command") or not isinstance(server_def.get("command"), str): print_debug(f"Warning: Stdio server '{server_id}' missing 'command'. Skipping."); is_valid_type = False
+                if not server_def.get("command") or not isinstance(server_def.get("command"), str): sys.stderr.write(f"Warning: Stdio server '{server_id}' missing 'command'. Skipping.\n"); sys.stderr.flush(); is_valid_type = False # Keep warning
             elif server_type in ["streamable-http", "sse"]:
-                if not server_def.get("url") or not isinstance(server_def.get("url"), str): print_debug(f"Warning: Server '{server_id}' ({server_type}) missing 'url'. Skipping."); is_valid_type = False
-            else: print_debug(f"Warning: Server '{server_id}' unknown type '{server_type}'. Skipping."); is_valid_type = False
+                if not server_def.get("url") or not isinstance(server_def.get("url"), str): sys.stderr.write(f"Warning: Server '{server_id}' ({server_type}) missing 'url'. Skipping.\n"); sys.stderr.flush(); is_valid_type = False # Keep warning
+            else: sys.stderr.write(f"Warning: Server '{server_id}' unknown type '{server_type}'. Skipping.\n"); sys.stderr.flush(); is_valid_type = False # Keep warning
             if is_valid_type:
                 if not isinstance(server_def.get("enabled"), bool): server_def["enabled"] = True
                 valid_servers.append(server_def)
         SERVER_CONFIGURATIONS = valid_servers; return True
-    except json.JSONDecodeError as e: print_debug(f"Error parsing JSON from {config_path}: {e}")
-    except Exception as e: print_debug(f"Unexpected error loading server config: {e}")
+    except json.JSONDecodeError as e: sys.stderr.write(f"Error parsing JSON from {config_path}: {e}\n"); sys.stderr.flush() # Keep critical
+    except Exception as e: sys.stderr.write(f"Unexpected error loading server config: {e}\n"); sys.stderr.flush() # Keep critical
     return False
 
 # Removed discover_tools_http function (now handled by fastmcp clients)
@@ -206,7 +208,7 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
     tools_from_this_server = []
     client = None # Ensure client is defined
 
-    print_debug(f"Async Discover: Processing server '{server_id}' (Type: {server_type})")
+    # print_debug(f"Async Discover: Processing server '{server_id}' (Type: {server_type})")
 
     client_target = None
     if server_type == "streamable-http" or server_type == "sse":
@@ -215,14 +217,14 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
         client_target = server_config.get('command')
 
     if not client_target:
-        print_debug(f"Async Discover: No valid client target for server '{server_id}' (type: {server_type}). Skipping.")
+        sys.stderr.write(f"Async Discover: No valid client target for server '{server_id}' (type: {server_type}). Skipping.\n"); sys.stderr.flush() # Keep warning
         return tools_from_this_server
 
     try:
         # server_id for Client constructor is not yet defined in fastmcp.Client API
         # Pass only target for now. Context might be passed via methods if needed by the library.
         async with current_fastmcp_module.Client(client_target) as client:
-            print_debug(f"Async Discover: [{server_id}] Calling 'tools/list'...")
+            # print_debug(f"Async Discover: [{server_id}] Calling 'tools/list'...")
             raw_tools_data = await client.list_tools()
 
             for tool in raw_tools_data:
@@ -234,9 +236,9 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
                 tool_def['mcp_server_command'] = server_config.get("command")
                 tool_def['mcp_server_type'] = server_type
                 tools_from_this_server.append(tool_def)
-            print_debug(f"Async Discover: Successfully discovered {len(tools_from_this_server)} tools from '{server_id}'.")
+            # print_debug(f"Async Discover: Successfully discovered {len(tools_from_this_server)} tools from '{server_id}'.")
     except Exception as e:
-        print_debug(f"Async Discover: Error during async tool discovery for server '{server_id}': {e}")
+        sys.stderr.write(f"Async Discover: Error during async tool discovery for server '{server_id}': {e}\n"); sys.stderr.flush() # Keep error
         # tools_from_this_server will be empty or partially filled, and returned.
 
     return tools_from_this_server
@@ -248,7 +250,7 @@ async def _execute_tool_call_async(tool_name, parameters, server_config, current
     server_type = server_config.get('type')
     tool_result = None
 
-    print_debug(f"Async Execute: Preparing tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) on server '{mcp_server_id}' (Type: {server_type})")
+    # print_debug(f"Async Execute: Preparing tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) on server '{mcp_server_id}' (Type: {server_type})")
 
     client_target = None
     if server_type == "streamable-http" or server_type == "sse":
@@ -257,17 +259,17 @@ async def _execute_tool_call_async(tool_name, parameters, server_config, current
         client_target = server_config.get('command')
 
     if not client_target:
-        print_debug(f"Async Execute: No valid client target for server '{mcp_server_id}' (type: {server_type}) for tool '{tool_name}'.")
+        sys.stderr.write(f"Async Execute: No valid client target for server '{mcp_server_id}' (type: {server_type}) for tool '{tool_name}'.\n"); sys.stderr.flush() # Keep error
         # Consider raising an exception or returning an error structure
         raise ValueError(f"Cannot determine client target for server {mcp_server_id} to execute {tool_name}")
 
     try:
         async with current_fastmcp_module.Client(client_target) as client:
-            print_debug(f"Async Execute: Executing tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) async with params: {parameters} via MCP client for server '{mcp_server_id}'.")
+            # print_debug(f"Async Execute: Executing tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) async with params: {parameters} via MCP client for server '{mcp_server_id}'.")
             tool_result = await client.call_tool(tool_name, parameters)
-            print_debug(f"Async Execute: Tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) async executed successfully. Raw Result: {str(tool_result)[:200]}...")
+            # print_debug(f"Async Execute: Tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) async executed successfully. Raw Result: {str(tool_result)[:200]}...")
     except Exception as e:
-        print_debug(f"Async Execute: Error during async execution of tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) on server '{mcp_server_id}': {e}")
+        sys.stderr.write(f"Async Execute: Error during async execution of tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) on server '{mcp_server_id}': {e}\n"); sys.stderr.flush() # Keep error
         # Propagate the exception to be handled by the caller in the message loop
         raise
 
@@ -280,7 +282,7 @@ def parse_tool_call_xml(xml_string, received_call_id_attr=None):
     """
     tool_calls = []
     try:
-        print_debug(f"Attempting to parse XML: {xml_string}")
+        # print_debug(f"Attempting to parse XML: {xml_string}")
         # Sanitize common problematic characters if any (though ET should handle most standard XML)
         # xml_string = xml_string.replace('&', '&amp;') # ET usually handles this. Be careful not to double-escape.
 
@@ -290,17 +292,17 @@ def parse_tool_call_xml(xml_string, received_call_id_attr=None):
         if root.tag == 'function_calls':
             invoke_elements = root.findall('invoke')
             if not invoke_elements: # Check if root itself might be a mis-nested invoke
-                 print_debug(f"Warning: <function_calls> root found, but no <invoke> children. XML: {xml_string}")
+                 sys.stderr.write(f"Warning: <function_calls> root found, but no <invoke> children. XML: {xml_string}\n"); sys.stderr.flush() # Keep warning
         elif root.tag == 'invoke':
             invoke_elements.append(root)
         else:
-            print_debug(f"Error: XML root is neither <function_calls> nor <invoke>. Root tag: {root.tag}. XML: {xml_string}")
+            sys.stderr.write(f"Error: XML root is neither <function_calls> nor <invoke>. Root tag: {root.tag}. XML: {xml_string}\n"); sys.stderr.flush() # Keep error
             return [{"error": f"XML root is not <function_calls> or <invoke>, got <{root.tag}>", "raw_xml": xml_string, "call_id": received_call_id_attr}]
 
         if not invoke_elements:
-            print_debug(f"Warning: No <invoke> elements found after parsing. XML: {xml_string}")
+            # print_debug(f"Warning: No <invoke> elements found after parsing. XML: {xml_string}") # Can be noisy if non-tool XML is common
             # Return an error if received_call_id_attr was present, as an invocation was expected.
-            if received_call_id_attr:
+            if received_call_id_attr: # This implies it was a TOOL_CALL_DETECTED message type
                  return [{"error": "No <invoke> elements found in XML", "raw_xml": xml_string, "call_id": received_call_id_attr}]
             return []
 
@@ -312,16 +314,16 @@ def parse_tool_call_xml(xml_string, received_call_id_attr=None):
             final_call_id = call_id_from_xml # Prefer call_id from XML content
             if not final_call_id and received_call_id_attr:
                 final_call_id = received_call_id_attr
-                print_debug(f"Used call_id ('{received_call_id_attr}') from content_script attribute as XML was missing one for tool '{tool_name}'.")
+                # print_debug(f"Used call_id ('{received_call_id_attr}') from content_script attribute as XML was missing one for tool '{tool_name}'.")
             elif call_id_from_xml and received_call_id_attr and call_id_from_xml != received_call_id_attr:
-                print_debug(f"Warning: call_id from XML ('{call_id_from_xml}') differs from content_script attribute ('{received_call_id_attr}') for tool '{tool_name}'. Using XML value.")
+                sys.stderr.write(f"Warning: call_id from XML ('{call_id_from_xml}') differs from content_script attribute ('{received_call_id_attr}') for tool '{tool_name}'. Using XML value.\n"); sys.stderr.flush() # Keep warning
 
             if not tool_name:
-                print_debug(f"Warning: <invoke> element missing 'name' attribute. Skipping. XML: {ET.tostring(invoke_element, encoding='unicode')}")
+                sys.stderr.write(f"Warning: <invoke> element missing 'name' attribute. Skipping. XML: {ET.tostring(invoke_element, encoding='unicode')}\n"); sys.stderr.flush() # Keep warning
                 # Optionally, could append an error object to tool_calls here
                 continue
             if not final_call_id:
-                print_debug(f"Warning: <invoke> element for tool '{tool_name}' missing 'call_id' (both in XML and from attribute). Skipping. XML: {ET.tostring(invoke_element, encoding='unicode')}")
+                sys.stderr.write(f"Warning: <invoke> element for tool '{tool_name}' missing 'call_id' (both in XML and from attribute). Skipping. XML: {ET.tostring(invoke_element, encoding='unicode')}\n"); sys.stderr.flush() # Keep warning
                 # Optionally, could append an error object
                 continue
 
@@ -331,7 +333,7 @@ def parse_tool_call_xml(xml_string, received_call_id_attr=None):
                 if param_name:
                     parameters[param_name] = param_element.text.strip() if param_element.text else ""
                 else:
-                    print_debug(f"Warning: <parameter> tag missing 'name' attribute in tool '{tool_name}'. Skipping parameter. XML: {ET.tostring(param_element, encoding='unicode')}")
+                    sys.stderr.write(f"Warning: <parameter> tag missing 'name' attribute in tool '{tool_name}'. Skipping parameter. XML: {ET.tostring(param_element, encoding='unicode')}\n"); sys.stderr.flush() # Keep warning
 
             tool_calls.append({
                 "tool_name": tool_name,
@@ -340,14 +342,14 @@ def parse_tool_call_xml(xml_string, received_call_id_attr=None):
                 "raw_xml_invoke": ET.tostring(invoke_element, encoding='unicode') # XML for this specific invoke
             })
 
-        print_debug(f"Successfully parsed {len(tool_calls)} tool call(s) from XML.")
+        # print_debug(f"Successfully parsed {len(tool_calls)} tool call(s) from XML.")
         return tool_calls
 
     except ET.ParseError as e:
-        print_debug(f"XML parsing error: {e}. XML string: {xml_string}")
+        sys.stderr.write(f"XML parsing error: {e}. XML string: {xml_string}\n"); sys.stderr.flush() # Keep error
         return [{"error": f"XML parsing error: {e}", "raw_xml": xml_string, "call_id": received_call_id_attr}]
     except Exception as e:
-        print_debug(f"Unexpected error in parse_tool_call_xml: {e}. XML string: {xml_string}")
+        sys.stderr.write(f"Unexpected error in parse_tool_call_xml: {e}. XML string: {xml_string}\n"); sys.stderr.flush() # Keep error
         return [{"error": f"Unexpected error during XML parsing: {e}", "raw_xml": xml_string, "call_id": received_call_id_attr}]
 
 
@@ -355,22 +357,22 @@ def main():
     global DISCOVERED_TOOLS
 
     if load_server_configurations():
-        if SERVER_CONFIGURATIONS: print_debug(f"Loaded {len(SERVER_CONFIGURATIONS)} MCP server configurations.")
-        else: print_debug("No valid server configurations found.")
-    else: print_debug("Failed to load MCP server configurations.")
+        if SERVER_CONFIGURATIONS: sys.stderr.write(f"Loaded {len(SERVER_CONFIGURATIONS)} MCP server configurations.\n"); sys.stderr.flush() # Keep summary
+        else: sys.stderr.write("No valid server configurations found.\n"); sys.stderr.flush() # Keep summary
+    else: sys.stderr.write("Failed to load MCP server configurations.\n"); sys.stderr.flush() # Keep summary
 
     DISCOVERED_TOOLS = []
-    print_debug("Starting tool discovery...")
+    sys.stderr.write("Starting tool discovery...\n"); sys.stderr.flush() # Keep status
 
     for server_config in SERVER_CONFIGURATIONS:
         server_id = server_config.get('id') # Get server_id for logging outside try block
         is_enabled = server_config.get('enabled', True) # Default to True if missing
 
         if not is_enabled:
-            print_debug(f"Skipping disabled server: '{server_id}'")
+            sys.stderr.write(f"Skipping disabled server: '{server_id}'\n"); sys.stderr.flush() # Keep info
             continue
 
-        print_debug(f"Attempting discovery for server: '{server_id}' (Type: {server_config.get('type')})")
+        # print_debug(f"Attempting discovery for server: '{server_id}' (Type: {server_config.get('type')})")
 
         try:
             discovered_list = run_async_task(
@@ -379,31 +381,31 @@ def main():
 
             # _discover_tools_for_server_async is expected to return a list (empty if errors or no tools)
             if discovered_list: # If the list is not None and not empty
-                print_debug(f"Successfully discovered {len(discovered_list)} tools from server '{server_id}'.")
+                # print_debug(f"Successfully discovered {len(discovered_list)} tools from server '{server_id}'.")
                 DISCOVERED_TOOLS.extend(discovered_list)
-            else: # Includes None or empty list
-                print_debug(f"No tools discovered from server '{server_id}'.")
+            # else: # Includes None or empty list
+                # print_debug(f"No tools discovered from server '{server_id}'.") # Can be noisy
         except Exception as e:
             # This catches errors from run_async_task or if _discover_tools_for_server_async re-raised an exception
-            print_debug(f"Failed to discover tools from server '{server_id}' due to an error: {e}")
+            sys.stderr.write(f"Failed to discover tools from server '{server_id}' due to an error: {e}\n"); sys.stderr.flush() # Keep error
             # Loop continues to the next server
 
     if DISCOVERED_TOOLS:
-        print_debug(f"--- Total tools discovered across all servers: {len(DISCOVERED_TOOLS)} ---")
+        sys.stderr.write(f"--- Total tools discovered across all servers: {len(DISCOVERED_TOOLS)} ---\n"); sys.stderr.flush() # Keep summary
         tool_names_seen = {}
         for tool in DISCOVERED_TOOLS:
             tool_name = tool.get('name'); origin_server = tool.get('mcp_server_id')
-            print_debug(f"  - Found tool: '{tool_name}' from server: '{origin_server}'")
-            if tool_name in tool_names_seen: print_debug(f"    WARNING: Duplicate tool_name '{tool_name}' also on server '{tool_names_seen[tool_name]}'.")
+            # print_debug(f"  - Found tool: '{tool_name}' from server: '{origin_server}'") # Verbose
+            if tool_name in tool_names_seen: sys.stderr.write(f"    WARNING: Duplicate tool_name '{tool_name}' also on server '{tool_names_seen[tool_name]}'.\n"); sys.stderr.flush() # Keep warning
             tool_names_seen[tool_name] = origin_server
     else:
-        print_debug("No tools were discovered from any active server.")
+        sys.stderr.write("No tools were discovered from any active server.\n"); sys.stderr.flush() # Keep status
 
     # Format the discovered tools into a markdown string
     global FORMATTED_TOOL_LIST_MD
     md_parts = []
     if DISCOVERED_TOOLS:
-        print_debug(f"Formatting {len(DISCOVERED_TOOLS)} discovered tools for system prompt...")
+        # print_debug(f"Formatting {len(DISCOVERED_TOOLS)} discovered tools for system prompt...")
         for tool_info in DISCOVERED_TOOLS:
             tool_md = []
             tool_md.append(f" - {tool_info.get('name', 'Unnamed Tool')}")
@@ -419,7 +421,7 @@ def main():
                 required_params = params_schema.get('required', [])
                 for param_name, param_details in properties.items():
                     if not isinstance(param_details, dict):
-                        print_debug(f"Warning: Parameter '{param_name}' for tool '{tool_info.get('name')}' has invalid details format. Skipping.")
+                        sys.stderr.write(f"Warning: Parameter '{param_name}' for tool '{tool_info.get('name')}' has invalid details format. Skipping.\n"); sys.stderr.flush() # Keep warning
                         continue
                     param_desc = param_details.get('description', '')
                     param_type = param_details.get('type', 'any')
@@ -434,28 +436,28 @@ def main():
         # Remove last extra newline if string is not empty, to avoid triple newline before </SYSTEM>
         if FORMATTED_TOOL_LIST_MD.endswith("\n\n"):
              FORMATTED_TOOL_LIST_MD = FORMATTED_TOOL_LIST_MD[:-1]
-        print_debug(f"Formatted tool list MD:\n{FORMATTED_TOOL_LIST_MD}")
+        # print_debug(f"Formatted tool list MD:\n{FORMATTED_TOOL_LIST_MD}") # Can be very verbose
 
     else:
         FORMATTED_TOOL_LIST_MD = "No tools available." # Placeholder if no tools are discovered
-        print_debug("No tools discovered, FORMATTED_TOOL_LIST_MD set to 'No tools available.'.")
+        # print_debug("No tools discovered, FORMATTED_TOOL_LIST_MD set to 'No tools available.'.")
 
 
-    print_debug(f"MCP Native Host script initialized. Waiting for messages...")
+    sys.stderr.write(f"MCP Native Host script initialized. Waiting for messages...\n"); sys.stderr.flush() # Keep status
     while True:
         try:
             received_message = get_message()
-            if received_message is None: print_debug("No message from extension. Browser might have closed."); break
+            if received_message is None: sys.stderr.write("No message from extension. Browser might have closed.\n"); sys.stderr.flush(); break # Keep status
 
             message_type = received_message.get("type")
             tab_id = received_message.get("tabId") # Ensure tabId is captured for responses
             payload = received_message.get("payload")
 
-            print_debug(f"Received message of type '{message_type}': {json.dumps(payload if payload else received_message)}")
+            # print_debug(f"Received message of type '{message_type}': {json.dumps(payload if payload else received_message)}") # Very verbose
 
             if message_type == "TOOL_CALL_DETECTED":
                 if not payload or "raw_xml" not in payload:
-                    print_debug("Error: TOOL_CALL_DETECTED message missing payload or raw_xml.")
+                    sys.stderr.write("Error: TOOL_CALL_DETECTED message missing payload or raw_xml.\n"); sys.stderr.flush() # Keep error
                     if tab_id: # Try to send error back if tab_id is known
                          send_message({"tabId": tab_id, "payload": {"status": "error", "message": "Python host received empty/invalid tool call payload."}})
                     continue
@@ -463,7 +465,7 @@ def main():
                 raw_xml_from_cs = payload.get("raw_xml")
                 call_id_from_cs_attr = payload.get("call_id") # This is the call_id extracted from DOM attribute by content_script
 
-                print_debug(f"Processing TOOL_CALL_DETECTED. XML: {raw_xml_from_cs[:200]}... CS CallID Attr: {call_id_from_cs_attr}")
+                # print_debug(f"Processing TOOL_CALL_DETECTED. XML: {raw_xml_from_cs[:200]}... CS CallID Attr: {call_id_from_cs_attr}")
 
                 parsed_tool_calls = parse_tool_call_xml(raw_xml_from_cs, call_id_from_cs_attr)
 
@@ -471,7 +473,7 @@ def main():
                 # This is usually a single-item list with an "error" key.
                 if parsed_tool_calls and isinstance(parsed_tool_calls, list) and "error" in parsed_tool_calls[0]:
                     error_data = parsed_tool_calls[0]
-                    print_debug(f"XML parsing directly returned an error: {error_data.get('error')}")
+                    sys.stderr.write(f"XML parsing directly returned an error: {error_data.get('error')}\n"); sys.stderr.flush() # Keep error
                     if tab_id:
                         send_message({
                             "tabId": tab_id,
@@ -487,7 +489,7 @@ def main():
                 # Case 2: XML was valid, but no <invoke> elements were found.
                 # parse_tool_call_xml returns an empty list in this scenario (unless it's an error like root tag mismatch, handled above).
                 if not parsed_tool_calls: # This now specifically means no invokable tools found in otherwise valid XML structure
-                    print_debug(f"Valid XML received, but no <invoke> elements found or no tools parsed from: {raw_xml_from_cs[:100]}... Silently ignoring as per new logic.")
+                    # print_debug(f"Valid XML received, but no <invoke> elements found or no tools parsed from: {raw_xml_from_cs[:100]}... Silently ignoring as per new logic.") # Can be noisy
                     # DO NOT send a message back to the extension. Silently ignore.
                     continue
 
@@ -497,7 +499,7 @@ def main():
                     # It's possible that parse_tool_call_xml could be extended to return per-tool errors
                     # even within a list of otherwise valid calls. This handles that defensively.
                     if "error" in tool_call_data: # Should ideally be caught by Case 1 if it's a global XML error.
-                        print_debug(f"Individual tool call data contained an error: {tool_call_data['error']}")
+                        sys.stderr.write(f"Individual tool call data contained an error: {tool_call_data['error']}\n"); sys.stderr.flush() # Keep error
                         if tab_id:
                             send_message({
                                 "tabId": tab_id,
@@ -517,7 +519,7 @@ def main():
                     parameters = tool_call_data.get("parameters")
 
                     if not parsed_call_id:
-                        print_debug(f"Critical: Parsed tool '{tool_name}' is missing a call_id after parsing. This should not happen if parse_tool_call_xml is correct. Skipping.")
+                        sys.stderr.write(f"Critical: Parsed tool '{tool_name}' is missing a call_id after parsing. This should not happen if parse_tool_call_xml is correct. Skipping.\n"); sys.stderr.flush() # Keep critical error
                         if tab_id:
                              send_message({
                                  "tabId": tab_id,
@@ -529,11 +531,11 @@ def main():
                              })
                         continue
 
-                    print_debug(f"Parsed Tool Call: Name='{tool_name}', Call_ID='{parsed_call_id}', Params='{parameters}'")
+                    # print_debug(f"Parsed Tool Call: Name='{tool_name}', Call_ID='{parsed_call_id}', Params='{parameters}'")
 
                     # Duplicate Check using the call_id from Python parsing
                     if parsed_call_id in PROCESSED_CALL_IDS:
-                        print_debug(f"Duplicate call_id '{parsed_call_id}' (from Python parsing) detected. Skipping tool '{tool_name}'.")
+                        sys.stderr.write(f"Duplicate call_id '{parsed_call_id}' (from Python parsing) detected. Skipping tool '{tool_name}'.\n"); sys.stderr.flush() # Keep info
                         if tab_id: # Inform extension about skipping duplicate
                             send_message({
                                 "tabId": tab_id,
@@ -546,7 +548,7 @@ def main():
                             })
                         continue
                     PROCESSED_CALL_IDS.add(parsed_call_id)
-                    print_debug(f"Added call_id '{parsed_call_id}' to processed set. Set size: {len(PROCESSED_CALL_IDS)}")
+                    # print_debug(f"Added call_id '{parsed_call_id}' to processed set. Set size: {len(PROCESSED_CALL_IDS)}")
 
                     # --- BEGIN TOOL EXECUTION LOGIC ---
                     # 1. Find Tool and Server Configuration
@@ -557,7 +559,7 @@ def main():
                             break
 
                     if not discovered_tool_config:
-                        print_debug(f"Error: Tool '{tool_name}' (ID: {parsed_call_id}) not found in DISCOVERED_TOOLS list after initial check.")
+                        sys.stderr.write(f"Error: Tool '{tool_name}' (ID: {parsed_call_id}) not found in DISCOVERED_TOOLS list after initial check.\n"); sys.stderr.flush() # Keep error
                         if tab_id:
                             send_message({
                                 "tabId": tab_id,
@@ -579,7 +581,7 @@ def main():
                             break
 
                     if not server_config:
-                        print_debug(f"Error: Server configuration for mcp_server_id '{mcp_server_id}' not found for tool '{tool_name}'.")
+                        sys.stderr.write(f"Error: Server configuration for mcp_server_id '{mcp_server_id}' not found for tool '{tool_name}'.\n"); sys.stderr.flush() # Keep error
                         if tab_id:
                             send_message({
                                 "tabId": tab_id,
@@ -598,18 +600,18 @@ def main():
                     execution_error = None
 
                     try:
-                        print_debug(f"Main Loop: Calling run_async_task for tool '{tool_name}' (Call ID: {parsed_call_id}) on server '{mcp_server_id}'.")
+                        # print_debug(f"Main Loop: Calling run_async_task for tool '{tool_name}' (Call ID: {parsed_call_id}) on server '{mcp_server_id}'.")
                         # Pass `parsed_call_id` for logging purposes within the async helper
                         tool_result = run_async_task(
                             _execute_tool_call_async(tool_name, parameters, server_config, fastmcp, parsed_call_id)
                         )
                         # If _execute_tool_call_async completes without raising an exception, tool_result is set.
                         # If it raises, execution_error will be set in the except block below.
-                        print_debug(f"Main Loop: Tool '{tool_name}' (Call ID: {parsed_call_id}) async task completed. Raw Result: {str(tool_result)[:200]}...")
+                        # print_debug(f"Main Loop: Tool '{tool_name}' (Call ID: {parsed_call_id}) async task completed. Raw Result: {str(tool_result)[:200]}...")
 
                     except Exception as e_async_call:
                         # This catches errors from run_async_task or if _execute_tool_call_async raised an exception.
-                        print_debug(f"Main Loop: Error calling async execution helper for tool '{tool_name}' (Call ID: {parsed_call_id}): {e_async_call}")
+                        sys.stderr.write(f"Main Loop: Error calling async execution helper for tool '{tool_name}' (Call ID: {parsed_call_id}): {e_async_call}\n"); sys.stderr.flush() # Keep error
                         execution_error = e_async_call # Store the exception
 
                     # Process result or error
@@ -637,7 +639,7 @@ def main():
   <tool_name>{tool_name}</tool_name>
   <result>{actual_result_content}</result>
 </tool_result>"""
-                        print_debug(f"Formatted XML result for '{tool_name}' (ID: {parsed_call_id}): {formatted_xml_result}")
+                        # print_debug(f"Formatted XML result for '{tool_name}' (ID: {parsed_call_id}): {formatted_xml_result}") # Can be verbose
 
                         response_payload_to_extension = {
                             "status": "tool_executed_and_result_ready",
@@ -647,21 +649,21 @@ def main():
                         }
                         if tab_id:
                             send_message({"tabId": tab_id, "payload": response_payload_to_extension})
-                            print_debug(f"Sent formatted XML result to extension for tool '{tool_name}', call_id '{parsed_call_id}'.")
+                            # print_debug(f"Sent formatted XML result to extension for tool '{tool_name}', call_id '{parsed_call_id}'.")
                         else:
-                            print_debug(f"Warning: No tabId, cannot send formatted XML result for call_id '{parsed_call_id}'.")
+                            sys.stderr.write(f"Warning: No tabId, cannot send formatted XML result for call_id '{parsed_call_id}'.\n"); sys.stderr.flush() # Keep warning
                     # --- END TOOL EXECUTION LOGIC (Refactored) ---
 
             elif message_type == "PING": # Example of handling other message types
-                print_debug("Received PING from extension.")
+                # print_debug("Received PING from extension.")
                 if tab_id:
                     send_message({"tabId": tab_id, "payload": {"type": "PONG", "message": "Python host says PONG!"}})
 
             elif message_type == "REQUEST_PROMPT":
-                print_debug(f"Received REQUEST_PROMPT message. Tab ID: {tab_id}")
+                # print_debug(f"Received REQUEST_PROMPT message. Tab ID: {tab_id}")
                 # Ensure tab_id is present, though background.js should always send it
                 if tab_id is None:
-                    print_debug("Error: REQUEST_PROMPT received without a tabId. Cannot respond.")
+                    sys.stderr.write("Error: REQUEST_PROMPT received without a tabId. Cannot respond.\n"); sys.stderr.flush() # Keep error
                 else:
                     # Access global BASE_SYSTEM_PROMPT and FORMATTED_TOOL_LIST_MD
                     # Ensure FORMATTED_TOOL_LIST_MD is not None, though it's initialized to "" or "No tools available."
@@ -670,11 +672,11 @@ def main():
                     final_prompt = BASE_SYSTEM_PROMPT.replace("{dynamic_tool_list_placeholder}", tool_list_for_prompt)
 
                     # Debug log for the final prompt (snippet)
-                    snippet_length = 200
-                    prompt_snippet_start = final_prompt[:snippet_length]
-                    prompt_snippet_end = final_prompt[-snippet_length:] if len(final_prompt) > snippet_length * 2 else ""
-                    ellipsis = " ... " if len(final_prompt) > snippet_length * 2 else ""
-                    print_debug(f"Final prompt snippet being sent to tabId {tab_id}: {prompt_snippet_start}{ellipsis}{prompt_snippet_end}")
+                    # snippet_length = 200
+                    # prompt_snippet_start = final_prompt[:snippet_length]
+                    # prompt_snippet_end = final_prompt[-snippet_length:] if len(final_prompt) > snippet_length * 2 else ""
+                    # ellipsis = " ... " if len(final_prompt) > snippet_length * 2 else ""
+                    # print_debug(f"Final prompt snippet being sent to tabId {tab_id}: {prompt_snippet_start}{ellipsis}{prompt_snippet_end}")
 
                     response_message = {
                         "tabId": tab_id,
@@ -684,11 +686,11 @@ def main():
                         }
                     }
                     send_message(response_message)
-                    print_debug(f"Sent PROMPT_RESPONSE with dynamically generated prompt to tabId: {tab_id}")
+                    # print_debug(f"Sent PROMPT_RESPONSE with dynamically generated prompt to tabId: {tab_id}")
 
-        except EOFError: print_debug("EOF encountered, stdin closed. Exiting."); break
+        except EOFError: sys.stderr.write("EOF encountered, stdin closed. Exiting.\n"); sys.stderr.flush(); break # Keep status
         except Exception as e:
-            print_debug(f"Error processing message loop: {e}")
+            sys.stderr.write(f"Error processing message loop: {e}\n"); sys.stderr.flush() # Keep error
             # Attempt to send an error message back to the extension if a tabId is available
             # This is a general error catch, might not always have tab_id if error is in get_message() itself
             try:
@@ -696,10 +698,10 @@ def main():
                 if current_tab_id:
                      send_message({"tabId": current_tab_id, "payload": {"status": "error_processing_loop", "message": f"Python host error: {str(e)}"}})
             except Exception as e_send:
-                print_debug(f"Failed to send error message to extension during exception handling: {e_send}")
+                sys.stderr.write(f"Failed to send error message to extension during exception handling: {e_send}\n"); sys.stderr.flush() # Keep error
 
-            if isinstance(e, struct.error): print_debug("Struct error, likely malformed message length. Exiting."); break
+            if isinstance(e, struct.error): sys.stderr.write("Struct error, likely malformed message length. Exiting.\n"); sys.stderr.flush(); break # Keep critical error
 
 if __name__ == '__main__':
     try: main()
-    except Exception as e: print_debug(f"Unhandled exception in main: {e}"); sys.exit(1)
+    except Exception as e: sys.stderr.write(f"Unhandled exception in main: {e}\n"); sys.stderr.flush(); sys.exit(1) # Keep critical error

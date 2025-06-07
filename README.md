@@ -72,7 +72,7 @@ This is the more complex part and requires careful setup. The extension needs to
        *   Your terminal prompt should change (e.g., prefix with `(venv)`) to indicate the virtual environment is active.
 
    4.  **Install Dependencies (e.g., `fastmcp`):**
-       *   With the virtual environment active, install necessary packages using `pip`. The `mcp_native_host.py` script relies on the `fastmcp` library (hypothetical for this project, but demonstrates dependency management).
+       *   With the virtual environment active, install necessary packages using `pip`. The `mcp_native_host.py` script relies on the `fastmcp` library.
           ```bash
           pip install fastmcp
           ```
@@ -179,7 +179,7 @@ The `mcp_servers_config.json` file should contain a JSON object with a top-level
 An example file, `mcp_servers_config.json`, is included in the repository with various sample server definitions.
 
 **Dynamic Tool Discovery at Startup:**
-Upon starting, `mcp_native_host.py` reads server definitions from `mcp_servers_config.json`. Using the (hypothetical) `fastmcp` library, it then attempts to connect to each **enabled** server based on its configured type (`stdio`, `streamable-http`, `sse`).
+Upon starting, `mcp_native_host.py` reads server definitions from `mcp_servers_config.json`. Using the `fastmcp` library, it then attempts to connect to each **enabled** server based on its configured type (`stdio`, `streamable-http`, `sse`).
 - The script will log details for each server configuration it loads or any errors encountered during parsing.
 - For each server, it calls the standard MCP method `tools/list` to discover the tools it offers. The `fastmcp` library handles the underlying transport protocols for these calls based on the server type.
   - For `streamable-http` and `sse` types, this involves an HTTP GET request to `[server_url]/tools/list`.

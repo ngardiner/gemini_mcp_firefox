@@ -44,12 +44,12 @@ Having experienced this, I propose a solution using Firefox (lower overhead) wit
     
 # Plan
 
-   * The initial concern about "too much processing going on in the Browser Extension" has been addressed. The content script now primarily extracts raw `textContent` from candidate `<code>` blocks, and the Python script handles the detailed parsing and validation of this text as XML tool calls. This simplifies the JavaScript significantly.
-   * Phase 1 items are largely complete.
-   * Phase 2 items (tool discovery, execution orchestration, result encapsulation) have their core logic implemented in `mcp_native_host.py`, utilizing the mock `fastmcp` library. The next step for Phase 2 is to integrate the actual `fastmcp` library.
-   * Phase 3 (prompt injection) has its messaging mechanism in place (`REQUEST_PROMPT`), and the Python script can generate the dynamic tool list. The UI button for this is also implemented.
+   * The design ensures that the Browser Extension remains lightweight, with primary parsing responsibilities shifted to the Python native host. The content script now primarily extracts raw `textContent` from candidate `<code>` blocks, and the Python script handles the detailed parsing and validation of this text as XML tool calls. This simplifies the JavaScript significantly.
+   * Core functionalities such as DOM monitoring, data extraction, and native messaging setup are implemented.
+   * Tool discovery, execution orchestration, and result encapsulation are handled by `mcp_native_host.py`. This currently utilizes a mock `fastmcp` library, with integration of a live `fastmcp` library being a key next step.
+   * Prompt injection, including dynamic tool list generation, is functional.
 
 # Current Issues
 
-   * The "persistent parsing issues with the extension's JavaScript" have been mitigated by shifting the primary responsibility of parsing tool call XML from JavaScript to the Python native host. The content script now focuses on identifying candidate code blocks and extracting their raw text, rather than interpreting the XML structure itself.
+   * The architecture delegates complex XML parsing to the Python native host, mitigating potential parsing issues in the JavaScript environment.
    * The main pending item is the integration of a real `fastmcp` library to replace the current mock, enabling communication with actual MCP tool servers.
