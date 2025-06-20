@@ -268,6 +268,15 @@ async def _execute_tool_call_async(tool_name, parameters, server_config, current
             # print_debug(f"Async Execute: Executing tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) async with params: {parameters} via MCP client for server '{mcp_server_id}'.")
             tool_result = await client.call_tool(tool_name, parameters)
             # print_debug(f"Async Execute: Tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) async executed successfully. Raw Result: {str(tool_result)[:200]}...")
+            
+            # Create a default result structure if tool_result is None or empty
+            if tool_result is None:
+                sys.stderr.write(f"Async Execute: Tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) returned None. Creating default result structure.\n"); sys.stderr.flush()
+                # Create a simple object with a text attribute to maintain compatibility
+                class DefaultResult:
+                    def __init__(self):
+                        self.text = "(No data returned by tool)"
+                tool_result = [DefaultResult()]
     except Exception as e:
         sys.stderr.write(f"Async Execute: Error during async execution of tool '{tool_name}' (Call ID: {parsed_call_id_for_logging}) on server '{mcp_server_id}': {e}\n"); sys.stderr.flush() # Keep error
         # Propagate the exception to be handled by the caller in the message loop
@@ -631,8 +640,25 @@ def main():
                         continue # Continue to next tool call in the parsed_tool_calls list
                     else:
                         # Process successful tool_result
-                        actual_result_content = tool_result[0].text
-
+                        # Handle cases where tool_result might be None, empty list, or doesn't have expected structure
+                        actual_result_content = ""
+                        if tool_result:
+                            if isinstance(tool_result, list) and len(tool_result) > 0:
+                                if hasattr(tool_result[0], 'text'):
+                                    actual_result_content = tool_result[0].text
+                                elif isinstance(tool_result[0], dict) and 'text' in tool_result[0]:
+                                    actual_result_content = tool_result[0]['text']
+                                else:
+                                    # If we can't find a .text attribute or 'text' key, convert the whole result to string
+                                    actual_result_content = str(tool_result[0])
+                            else:
+                                # If tool_result is not a list or is empty, convert the whole result to string
+                                actual_result_content = str(tool_result)
+                        
+                        # If we still have no content, provide a default message
+                        if not actual_result_content:
+                            actual_result_content = "(No data returned by tool)"
+                            
                         actual_result_content = actual_result_content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                         formatted_xml_result = f"""<tool_result>
   <call_id>{parsed_call_id}</call_id>
