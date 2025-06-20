@@ -522,9 +522,21 @@ function handleBackgroundMessages(message) {
 function setupUI() {
   injectStyles(); // Call the function to inject CSS styles
 
-  const uiContainer = document.createElement('div');
+  // Check if UI already exists
+  let uiContainer = document.getElementById('mcp-client-ui-container');
+  if (uiContainer) {
+    console.log("UI container already exists, returning existing one");
+    return uiContainer;
+  }
+
+  console.log("Creating new UI container");
+  // Create UI container
+  uiContainer = document.createElement('div');
   uiContainer.id = 'mcp-client-ui-container';
   uiContainer.classList.add('mcp-ui-container');
+  
+  // Set initial display to none - will be shown when popup is clicked
+  uiContainer.style.display = 'none';
 
   // Toggle Switch
   const toggleLabel = document.createElement('label');
@@ -541,6 +553,12 @@ function setupUI() {
   toggleSwitch.addEventListener('change', () => {
     isMcpClientEnabled = toggleSwitch.checked;
     // console.log(`Gemini MCP Client ${isMcpClientEnabled ? 'enabled' : 'disabled'}`);
+    
+    // Save the state to storage
+    browser.storage.local.set({ mcpClientEnabled: isMcpClientEnabled }).catch(error => {
+      console.error("Error saving state:", error);
+    });
+    
     if (isMcpClientEnabled) {
       startObserver(); // Depends on startObserver being defined
     } else {
@@ -555,15 +573,23 @@ function setupUI() {
   dummyPromptButton.classList.add('mcp-dummy-prompt-button');
 
   dummyPromptButton.addEventListener('click', () => {
-    // console.log("Gemini MCP Client [DEBUG]: Inject prompt button clicked. Requesting prompt from background script.");
+    console.log("Gemini MCP Client [DEBUG]: Inject prompt button clicked. Requesting prompt from background script.");
+    
+    // Get the current tab ID to include in the message
+    const currentUrl = window.location.href;
+    console.log("Current URL:", currentUrl);
+    
     // Send message to background script to request a prompt
-    chrome.runtime.sendMessage({ type: "GET_PROMPT" }) // chrome namespace here, browser for listener. Keep as is.
-      .then(response => {
-        // console.log("Gemini MCP Client [DEBUG]: Response from background script for GET_PROMPT:", response);
-      })
-      .catch(error => {
-        console.error("Gemini MCP Client [ERROR]: Error sending GET_PROMPT message to background script:", error);
-      });
+    browser.runtime.sendMessage({ 
+      type: "GET_PROMPT",
+      url: currentUrl  // Include the URL to help identify the tab
+    })
+    .then(response => {
+      console.log("Gemini MCP Client [DEBUG]: Response from background script for GET_PROMPT:", response);
+    })
+    .catch(error => {
+      console.error("Gemini MCP Client [ERROR]: Error sending GET_PROMPT message to background script:", error);
+    });
   });
 
   const toggleDiv = document.createElement('div');
@@ -574,6 +600,44 @@ function setupUI() {
   uiContainer.appendChild(dummyPromptButton);
   document.body.appendChild(uiContainer);
   // console.log("Gemini MCP Client: UI elements injected.");
+  
+  return uiContainer;
+}
+
+// Functions to show/hide the UI
+function showUI() {
+  console.log("showUI called");
+  let uiContainer = document.getElementById('mcp-client-ui-container');
+  if (!uiContainer) {
+    console.log("UI container not found, creating it");
+    uiContainer = setupUI();
+  }
+  console.log("Setting UI container display to block");
+  uiContainer.style.display = 'block';
+  
+  // Make sure it's visible by setting opacity and z-index
+  uiContainer.style.opacity = '1';
+  uiContainer.style.zIndex = '10000';
+  
+  // Log the UI container's computed style to verify it's visible
+  const computedStyle = window.getComputedStyle(uiContainer);
+  console.log("UI container computed style:", {
+    display: computedStyle.display,
+    opacity: computedStyle.opacity,
+    zIndex: computedStyle.zIndex,
+    position: computedStyle.position
+  });
+}
+
+function hideUI() {
+  console.log("hideUI called");
+  const uiContainer = document.getElementById('mcp-client-ui-container');
+  if (uiContainer) {
+    console.log("Setting UI container display to none");
+    uiContainer.style.display = 'none';
+  } else {
+    console.log("UI container not found when trying to hide");
+  }
 }
 
 // Style injection function
@@ -652,14 +716,16 @@ function injectStyles() {
             position: fixed;
             top: 10px;
             right: 10px;
-            background-color: rgba(255, 255, 255, 0.9);
-            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.95);
+            padding: 15px;
             border: 1px solid #ccc;
-            border-radius: 5px;
+            border-radius: 8px;
             z-index: 9999;
             font-family: Arial, sans-serif;
             font-size: 14px;
             color: #333;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            transition: opacity 0.3s ease-in-out;
         }
         .mcp-toggle-label {
             margin-right: 5px;
@@ -819,9 +885,70 @@ function initializeTargetNodeAndObserver(forceStart = false) {
 browser.runtime.onMessage.addListener(handleBackgroundMessages); // handleBackgroundMessages must be defined
 
 // Initial setup
-setupUI(); // setupUI must be defined, and it calls startObserver/stopObserver
+console.log("Content script loaded on:", window.location.href);
 
-// Initialize and start the observer after UI is ready and DOM might be more stable
-setTimeout(() => {
-     initializeTargetNodeAndObserver(true); // initializeTargetNodeAndObserver must be defined
- }, 1000);
+// Check if we're on the correct page
+if (window.location.href.includes("gemini.google.com")) {
+    console.log("On Gemini page, initializing UI and observer");
+    // Initialize the UI but don't show it yet
+    setupUI(); 
+
+    // Initialize and start the observer after UI is ready and DOM might be more stable
+    setTimeout(() => {
+        initializeTargetNodeAndObserver(true); // initializeTargetNodeAndObserver must be defined
+    }, 1000);
+} else {
+    console.log("Not on Gemini page, skipping UI and observer initialization");
+}
+
+// Listen for messages from the popup
+browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log("Content script received message:", message);
+    if (message.type === 'TOGGLE_UI') {
+        console.log("Toggling UI visibility:", message.show);
+        if (message.show) {
+            showUI();
+        } else {
+            hideUI();
+        }
+        sendResponse({ status: 'UI visibility updated' });
+        return true;
+    } else if (message.type === 'REQUEST_INJECT_PROMPT') {
+        console.log("Content script received REQUEST_INJECT_PROMPT message");
+        
+        // Send message to background script to request a prompt
+        // This ensures the tabId is properly included
+        browser.runtime.sendMessage({ 
+            type: "GET_PROMPT",
+            url: window.location.href
+        })
+        .then(response => {
+            console.log("Content script: Response from background script for GET_PROMPT:", response);
+            sendResponse({ status: 'Prompt request forwarded to background script' });
+        })
+        .catch(error => {
+            console.error("Content script: Error sending GET_PROMPT message to background script:", error);
+            sendResponse({ status: 'Error: ' + error.message });
+        });
+        
+        return true; // Keep the message channel open for the async response
+    } else if (message.type === 'TOGGLE_MCP_CLIENT') {
+        isMcpClientEnabled = message.enabled;
+        
+        // Update the toggle switch if UI is visible
+        const toggleSwitch = document.getElementById('mcp-client-toggle');
+        if (toggleSwitch) {
+            toggleSwitch.checked = isMcpClientEnabled;
+        }
+        
+        if (isMcpClientEnabled) {
+            startObserver();
+        } else {
+            stopObserver();
+        }
+        
+        sendResponse({ status: `MCP Client ${isMcpClientEnabled ? 'enabled' : 'disabled'}` });
+        return true;
+    }
+    return false;
+});
