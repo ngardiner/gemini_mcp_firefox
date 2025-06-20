@@ -184,15 +184,22 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ status: "Error: Native host not connected" });
     }
     return true; // Indicate that we might send a response asynchronously (or not)
-  } else if (message.type === "TOOL_CALL_DETECTED") {
+  } else if (message.type === "TOOL_CALL_DETECTED" || message.type === "REPROCESS_TOOL_CALL") {
     const callId = message.payload && message.payload.call_id;
+    const isReprocessing = message.type === "REPROCESS_TOOL_CALL";
+    
+    // Log the action
+    if (isReprocessing) {
+      console.log(`Reprocessing tool call with ID: ${callId}`);
+    }
 
-    if (callId) {
+    // Only check for duplicate call_id if not reprocessing
+    if (callId && !isReprocessing) {
       if (processedCallIds.has(callId)) {
         console.warn(`Duplicate call_id detected, skipping: ${callId}`);
         // Optionally send a response to the content script indicating a duplicate
-        // sendResponse({ status: "Duplicate call_id, message not forwarded." });
-        return false; // Or true if sending async response
+        sendResponse({ status: "Duplicate call_id, message not forwarded." });
+        return true; // We're sending a response
       }
       processedCallIds.add(callId);
       // console.log(`New call_id ${callId} added to processed set.`);
@@ -201,22 +208,63 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!port) {
         connectToNativeHost();
     }
+    
     if (port) {
-        // Add tabId to the message so native host can send it back
-        // allowing background script to route response to correct tab.
+        // Create a new message to send to the native host
         const messageToNative = {
-            ...message,
-            tabId: sender.tab ? sender.tab.id : null
+            // Always use TOOL_CALL_DETECTED as the type for the native host
+            type: "TOOL_CALL_DETECTED",
+            tabId: sender.tab ? sender.tab.id : null,
+            payload: message.payload
         };
+        
+        // If this is a reprocessing request, modify the payload to bypass duplicate check
+        if (isReprocessing) {
+          // Generate a new unique call_id by appending a timestamp
+          const timestamp = Date.now();
+          const originalCallId = messageToNative.payload.call_id;
+          const newCallId = `${originalCallId}_reprocess_${timestamp}`;
+          
+          // Normalize XML by replacing HTML-encoded angle brackets if present
+          let modifiedXml = messageToNative.payload.raw_xml;
+          modifiedXml = modifiedXml
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'")
+            .replace(/&amp;/g, '&');
+            
+          // Replace the call_id in the XML
+          modifiedXml = modifiedXml.replace(
+            new RegExp(`call_id=["']${originalCallId}["']`, 'g'), 
+            `call_id="${newCallId}"`
+          );
+          
+          // Update the payload with the modified XML and call_id
+          messageToNative.payload.raw_xml = modifiedXml;
+          messageToNative.payload.call_id = newCallId;
+          
+          console.log(`Modified call_id from ${originalCallId} to ${newCallId} for reprocessing`);
+          
+          // Send a response to the content script
+          sendResponse({ 
+            status: "Reprocessing request sent to native host",
+            newCallId: newCallId
+          });
+        }
+        
+        console.log("Sending to native host:", messageToNative);
         sendToNativeHost(messageToNative);
-        // sendResponse({ status: "Message forwarded to native host." }); // Optional: acknowledge receipt
     } else {
         console.error("Failed to connect to native host. Message not sent.");
-        // sendResponse({ status: "Failed to forward message.", error: "Native host connection failed." });
+        sendResponse({ 
+          status: "Failed to forward message.", 
+          error: "Native host connection failed." 
+        });
     }
-    // Return true if you want to send a response asynchronously.
-    // For now, we are not sending an immediate response back to content script from here.
-    return false;
+    
+    // Return true to indicate we're sending a response asynchronously
+    return true;
   }
   return false; // Default handling for other messages
 });
