@@ -63,48 +63,115 @@ function sendToNativeHost(message) {
 }
 
 // Function to connect to the native messaging host
+let connectionAttempts = 0;
+const MAX_CONNECTION_ATTEMPTS = 5;
+const RECONNECT_DELAY_MS = 1000; // Start with 1 second delay
+let reconnectTimeoutId = null;
+
 function connectToNativeHost() {
   if (port) {
     // console.log("Already connected or connecting to native host.");
     return;
   }
-  console.log(`Attempting to connect to native host: ${nativeHostName}`);
+  
+  // Clear any existing reconnect timeout
+  if (reconnectTimeoutId) {
+    clearTimeout(reconnectTimeoutId);
+    reconnectTimeoutId = null;
+  }
+  
+  // If we've exceeded the maximum number of attempts, stop trying
+  if (connectionAttempts >= MAX_CONNECTION_ATTEMPTS) {
+    console.error(`Failed to connect to native host after ${MAX_CONNECTION_ATTEMPTS} attempts. Giving up.`);
+    // Notify any open tabs about the connection failure
+    browser.tabs.query({}).then(tabs => {
+      tabs.forEach(tab => {
+        if (tab.url && tab.url.includes("gemini.google.com")) {
+          browser.tabs.sendMessage(tab.id, {
+            type: "NATIVE_HOST_CONNECTION_STATUS",
+            payload: { connected: false, error: "Failed to connect after multiple attempts" }
+          }).catch(err => {
+            // Ignore errors here, as the tab might not have the content script loaded
+          });
+        }
+      });
+    }).catch(err => {
+      console.error("Error querying tabs:", err);
+    });
+    return;
+  }
+  
+  connectionAttempts++;
+  console.log(`Attempting to connect to native host: ${nativeHostName} (Attempt ${connectionAttempts} of ${MAX_CONNECTION_ATTEMPTS})`);
+  
   try {
     port = browser.runtime.connectNative(nativeHostName);
     console.log("Successfully connected to native host.");
+    
+    // Reset connection attempts on successful connection
+    connectionAttempts = 0;
+    
+    // Notify any open tabs about the successful connection
+    browser.tabs.query({}).then(tabs => {
+      tabs.forEach(tab => {
+        if (tab.url && tab.url.includes("gemini.google.com")) {
+          browser.tabs.sendMessage(tab.id, {
+            type: "NATIVE_HOST_CONNECTION_STATUS",
+            payload: { connected: true }
+          }).catch(err => {
+            // Ignore errors here, as the tab might not have the content script loaded
+          });
+        }
+      });
+    }).catch(err => {
+      console.error("Error querying tabs:", err);
+    });
 
     port.onMessage.addListener((response) => {
-      // console.log("Received from native host:", response);
-
-      if (response.payload && response.payload.type === "PROMPT_RESPONSE") {
-        // console.log("Background: Received PROMPT_RESPONSE from native host:", response);
-        if (response.tabId && response.payload.prompt) {
-          const tabId = response.tabId;
-          const promptToSend = response.payload.prompt;
-          // console.log("Background: Forwarding PROMPT_FROM_NATIVE_HOST to tabId:", tabId, "with prompt:", promptToSend); // Added per requirement
-          browser.tabs.sendMessage(tabId, {
-            type: "PROMPT_FROM_NATIVE_HOST",
-            payload: { prompt: promptToSend }
+      try {
+        // Validate the response structure
+        if (!response) {
+          console.error("Received empty response from native host");
+          return;
+        }
+        
+        // Handle different response types
+        if (response.payload && response.payload.type === "PROMPT_RESPONSE") {
+          if (response.tabId && response.payload.prompt) {
+            const tabId = response.tabId;
+            const promptToSend = response.payload.prompt;
+            
+            // Check if the tab still exists before sending the message
+            browser.tabs.get(tabId).then(tab => {
+              return browser.tabs.sendMessage(tabId, {
+                type: "PROMPT_FROM_NATIVE_HOST",
+                payload: { prompt: promptToSend }
+              });
+            }).then(() => {
+              // console.log(`Background: PROMPT_FROM_NATIVE_HOST message successfully sent to tab ${tabId}`);
+            }).catch(err => {
+              console.error(`Background: Error sending PROMPT_FROM_NATIVE_HOST message to tab ${tabId}:`, err);
+            });
+          } else {
+            console.warn("Background: Malformed PROMPT_RESPONSE from native host. Missing tabId or prompt.", response);
+          }
+        } else if (response.tabId && response.payload) { // Existing handling for other messages like tool results
+          // Check if the tab still exists before sending the message
+          browser.tabs.get(response.tabId).then(tab => {
+            return browser.tabs.sendMessage(response.tabId, {
+              type: "FROM_NATIVE_HOST",
+              payload: response.payload
+            });
           }).then(() => {
-            // console.log(`Background: PROMPT_FROM_NATIVE_HOST message successfully sent to tab ${tabId}`);
+            // console.log(`Background: FROM_NATIVE_HOST message sent to tab ${response.tabId}`);
           }).catch(err => {
-            console.error(`Background: Error sending PROMPT_FROM_NATIVE_HOST message to tab ${response.tabId}:`, err);
+            console.error(`Background: Error sending FROM_NATIVE_HOST message to tab ${response.tabId}:`, err);
           });
         } else {
-          console.warn("Background: Malformed PROMPT_RESPONSE from native host. Missing tabId or prompt.", response);
+          console.warn("Background: No tabId in response from native host or missing payload. Cannot forward to content script.", response);
         }
-      } else if (response.tabId && response.payload) { // Existing handling for other messages like tool results
-        // console.log("Background: Received other message from native host with tabId:", response);
-        browser.tabs.sendMessage(response.tabId, {
-          type: "FROM_NATIVE_HOST", // Generic type for other native host responses
-          payload: response.payload
-        }).then(() => {
-            // console.log(`Background: FROM_NATIVE_HOST message sent to tab ${response.tabId}`);
-        }).catch(err => {
-            console.error(`Background: Error sending FROM_NATIVE_HOST message to tab ${response.tabId}:`, err);
-        });
-      } else {
-        console.warn("Background: No tabId in response from native host or missing payload. Cannot forward to content script.", response);
+      } catch (error) {
+        console.error("Error processing message from native host:", error);
       }
     });
 
@@ -113,12 +180,38 @@ function connectToNativeHost() {
       if (port && port.error) { // Check if port exists before accessing error
         console.error("Native host disconnect error:", port.error.message);
       }
-      port = null; // Reset port so connectToNativeHost can try again
+      port = null; // Reset port
+      
+      // Notify any open tabs about the disconnection
+      browser.tabs.query({}).then(tabs => {
+        tabs.forEach(tab => {
+          if (tab.url && tab.url.includes("gemini.google.com")) {
+            browser.tabs.sendMessage(tab.id, {
+              type: "NATIVE_HOST_CONNECTION_STATUS",
+              payload: { connected: false, error: "Native host disconnected" }
+            }).catch(err => {
+              // Ignore errors here, as the tab might not have the content script loaded
+            });
+          }
+        });
+      }).catch(err => {
+        console.error("Error querying tabs:", err);
+      });
+      
+      // Attempt to reconnect with exponential backoff
+      const reconnectDelay = Math.min(RECONNECT_DELAY_MS * Math.pow(2, connectionAttempts - 1), 30000); // Max 30 seconds
+      console.log(`Will attempt to reconnect in ${reconnectDelay/1000} seconds...`);
+      reconnectTimeoutId = setTimeout(connectToNativeHost, reconnectDelay);
     });
 
   } catch (error) {
     console.error("Error connecting to native host:", error);
     port = null;
+    
+    // Attempt to reconnect with exponential backoff
+    const reconnectDelay = Math.min(RECONNECT_DELAY_MS * Math.pow(2, connectionAttempts - 1), 30000); // Max 30 seconds
+    console.log(`Will attempt to reconnect in ${reconnectDelay/1000} seconds...`);
+    reconnectTimeoutId = setTimeout(connectToNativeHost, reconnectDelay);
   }
 }
 
@@ -184,6 +277,28 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ status: "Error: Native host not connected" });
     }
     return true; // Indicate that we might send a response asynchronously (or not)
+  } else if (message.type === "CHECK_NATIVE_HOST_CONNECTION") {
+    // Send the current connection status back to the content script
+    const isConnected = !!port; // Convert to boolean
+    sendResponse({
+      connected: isConnected,
+      error: isConnected ? null : "Native host not connected"
+    });
+    
+    // Also send a NATIVE_HOST_CONNECTION_STATUS message to ensure the UI is updated
+    if (sender.tab && sender.tab.id) {
+      browser.tabs.sendMessage(sender.tab.id, {
+        type: "NATIVE_HOST_CONNECTION_STATUS",
+        payload: {
+          connected: isConnected,
+          error: isConnected ? null : "Native host not connected"
+        }
+      }).catch(err => {
+        console.error("Error sending connection status to tab:", err);
+      });
+    }
+    
+    return true;
   } else if (message.type === "TOOL_CALL_DETECTED" || message.type === "REPROCESS_TOOL_CALL") {
     const callId = message.payload && message.payload.call_id;
     const isReprocessing = message.type === "REPROCESS_TOOL_CALL";
@@ -225,14 +340,19 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const originalCallId = messageToNative.payload.call_id;
           const newCallId = `${originalCallId}_reprocess_${timestamp}`;
           
-          // Normalize XML by replacing HTML-encoded angle brackets if present
+          // Normalize XML
           let modifiedXml = messageToNative.payload.raw_xml;
-          modifiedXml = modifiedXml
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&apos;/g, "'")
-            .replace(/&amp;/g, '&');
+          try {
+            modifiedXml = modifiedXml
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"')
+              .replace(/&apos;/g, "'")
+              .replace(/&amp;/g, '&');
+          } catch (error) {
+            console.error("Error normalizing XML in reprocessing:", error);
+            // Use the original XML if normalization fails
+          }
             
           // Replace the call_id in the XML
           modifiedXml = modifiedXml.replace(

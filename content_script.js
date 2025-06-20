@@ -25,8 +25,32 @@ function escapeHTML(str) {
 // Function to unescape HTML entities (should be defined before first use)
 function unescapeHtmlEntities(htmlStringWithEntities) {
     if (typeof htmlStringWithEntities !== 'string') return '';
-    const doc = new DOMParser().parseFromString(htmlStringWithEntities, 'text/html');
-    return doc.documentElement.textContent;
+    try {
+        const doc = new DOMParser().parseFromString(htmlStringWithEntities, 'text/html');
+        return doc.documentElement.textContent;
+    } catch (error) {
+        console.error("Error unescaping HTML entities:", error);
+        // Return the original string if parsing fails
+        return htmlStringWithEntities;
+    }
+}
+
+// Function to safely normalize XML
+function safeNormalizeXml(xmlString) {
+    if (typeof xmlString !== 'string') return '';
+    try {
+        // Replace HTML-encoded angle brackets and other entities
+        return xmlString
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'")
+            .replace(/&amp;/g, '&');
+    } catch (error) {
+        console.error("Error normalizing XML:", error);
+        // Return the original string if normalization fails
+        return xmlString;
+    }
 }
 
 // Function to inject text and send the message using polling for the send button
@@ -145,18 +169,13 @@ function processPotentialMessageContainer(containerElement) {
 
     reconstructedXml = reconstructedXml.trim(); // Trim whitespace
 
-    // Use the new unescapeHtmlEntities function
+    // Use the unescapeHtmlEntities function
     const unescapedXml = unescapeHtmlEntities(reconstructedXml);
 
     // console.log("Gemini MCP Client [DEBUG]: Reconstructed and Unescaped XML from message container:", unescapedXml.substring(0, 200) + "...");
 
-    // Normalize XML by replacing any remaining HTML-encoded angle brackets
-    const normalizedXml = unescapedXml
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&apos;/g, "'")
-        .replace(/&amp;/g, '&');
+    // Normalize XML using the safe function
+    const normalizedXml = safeNormalizeXml(unescapedXml);
         
     // Check if it's a tool result, using trim() on the normalized XML
     if (normalizedXml.trim().startsWith("<tool_result") && normalizedXml.trim().endsWith("</tool_result>")) {
@@ -200,13 +219,8 @@ function handleFoundCodeElement(passedElement, sourceType, isResultBlockFromCall
         codeContentElement = passedElement; // passedElement is assumed to be the <code> element
         actualXml = codeContentElement.textContent ? codeContentElement.textContent.trim() : "";
 
-        // Normalize XML by replacing HTML-encoded angle brackets if present
-        const normalizedXml = actualXml
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&apos;/g, "'")
-            .replace(/&amp;/g, '&');
+        // Normalize XML using the safe function
+        const normalizedXml = safeNormalizeXml(actualXml);
         
         if (normalizedXml.startsWith("<function_calls>") && normalizedXml.endsWith("</function_calls>")) {
             isFunctionCall = true;
@@ -245,13 +259,8 @@ function handleFoundCodeElement(passedElement, sourceType, isResultBlockFromCall
             return;
         }
     } else { // explicitXml is provided (from processPotentialMessageContainer)
-        // Normalize XML by replacing HTML-encoded angle brackets if present
-        const normalizedXml = actualXml
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&apos;/g, "'")
-            .replace(/&amp;/g, '&');
+        // Normalize XML using the safe function
+        const normalizedXml = safeNormalizeXml(actualXml);
             
         // Update actualXml to use the normalized version
         actualXml = normalizedXml;
@@ -697,7 +706,7 @@ function setupUI() {
 
   console.log("Creating new UI container");
   // Create UI container
-  uiContainer = document.createElement('div');
+  const uiContainer = document.createElement('div');
   uiContainer.id = 'mcp-client-ui-container';
   uiContainer.classList.add('mcp-ui-container');
   
@@ -718,7 +727,6 @@ function setupUI() {
 
   toggleSwitch.addEventListener('change', () => {
     isMcpClientEnabled = toggleSwitch.checked;
-    // console.log(`Gemini MCP Client ${isMcpClientEnabled ? 'enabled' : 'disabled'}`);
     
     // Save the state to storage
     browser.storage.local.set({ mcpClientEnabled: isMcpClientEnabled }).catch(error => {
@@ -732,14 +740,56 @@ function setupUI() {
     }
   });
 
+  // Connection Status Indicator
+  const statusContainer = document.createElement('div');
+  statusContainer.classList.add('mcp-status-container');
+  
+  const statusLabel = document.createElement('span');
+  statusLabel.textContent = 'Status: ';
+  statusLabel.classList.add('mcp-status-label');
+  
+  const statusIndicator = document.createElement('span');
+  statusIndicator.id = 'mcp-connection-status';
+  statusIndicator.classList.add('mcp-connection-status');
+  // Set initial status based on the global variable
+  if (isNativeHostConnected) {
+    statusIndicator.textContent = 'Connected';
+    statusIndicator.classList.add('mcp-status-connected');
+    statusIndicator.title = 'Native host is connected';
+  } else {
+    statusIndicator.textContent = 'Disconnected';
+    statusIndicator.classList.add('mcp-status-disconnected');
+    statusIndicator.title = nativeHostConnectionError || 'Native host is not connected';
+  }
+  
+  statusContainer.appendChild(statusLabel);
+  statusContainer.appendChild(statusIndicator);
+
   // Dummy Prompt Button
   const dummyPromptButton = document.createElement('button');
   dummyPromptButton.id = 'mcp-inject-dummy-prompt';
-  dummyPromptButton.textContent = 'Inject Prompt'; // Changed textContent
+  dummyPromptButton.textContent = 'Inject Prompt';
   dummyPromptButton.classList.add('mcp-dummy-prompt-button');
+  
+  // Disable the button if the native host is not connected
+  if (!isNativeHostConnected) {
+    dummyPromptButton.disabled = true;
+    dummyPromptButton.title = 'Native host is not connected';
+  }
 
   dummyPromptButton.addEventListener('click', () => {
+    // Check if native host is connected before sending the request
+    if (!isNativeHostConnected) {
+      console.error("Cannot request prompt: Native host is not connected");
+      alert("Cannot inject prompt: Native host is not connected");
+      return;
+    }
+    
     console.log("Gemini MCP Client [DEBUG]: Inject prompt button clicked. Requesting prompt from background script.");
+    
+    // Disable the button to prevent multiple clicks
+    dummyPromptButton.disabled = true;
+    dummyPromptButton.textContent = 'Requesting...';
     
     // Get the current tab ID to include in the message
     const currentUrl = window.location.href;
@@ -752,20 +802,45 @@ function setupUI() {
     })
     .then(response => {
       console.log("Gemini MCP Client [DEBUG]: Response from background script for GET_PROMPT:", response);
+      // Re-enable the button after a short delay
+      setTimeout(() => {
+        dummyPromptButton.disabled = false;
+        dummyPromptButton.textContent = 'Inject Prompt';
+      }, 1000);
     })
     .catch(error => {
       console.error("Gemini MCP Client [ERROR]: Error sending GET_PROMPT message to background script:", error);
+      // Re-enable the button after a short delay
+      setTimeout(() => {
+        dummyPromptButton.disabled = false;
+        dummyPromptButton.textContent = 'Inject Prompt';
+      }, 1000);
     });
   });
 
+  // Create a container for the toggle switch
   const toggleDiv = document.createElement('div');
+  toggleDiv.classList.add('mcp-toggle-container');
   toggleDiv.appendChild(toggleLabel);
   toggleDiv.appendChild(toggleSwitch);
 
+  // Add all elements to the UI container
   uiContainer.appendChild(toggleDiv);
+  uiContainer.appendChild(statusContainer);
   uiContainer.appendChild(dummyPromptButton);
+  
+  // Add the UI container to the document
   document.body.appendChild(uiContainer);
-  // console.log("Gemini MCP Client: UI elements injected.");
+  
+  // Check the native host connection status
+  browser.runtime.sendMessage({ type: "CHECK_NATIVE_HOST_CONNECTION" })
+    .then(response => {
+      console.log("Native host connection status:", response);
+      // The background script will send a NATIVE_HOST_CONNECTION_STATUS message in response
+    })
+    .catch(error => {
+      console.error("Error checking native host connection:", error);
+    });
   
   return uiContainer;
 }
@@ -915,6 +990,39 @@ function injectStyles() {
         }
         .mcp-dummy-prompt-button:hover {
             background-color: #0056b3;
+        }
+        .mcp-dummy-prompt-button:disabled {
+            background-color: #cccccc;
+            border-color: #999999;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        .mcp-status-container {
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+        }
+        .mcp-status-label {
+            margin-right: 5px;
+        }
+        .mcp-connection-status {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        .mcp-status-connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .mcp-status-disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .mcp-toggle-container {
+            margin-bottom: 10px;
         }
         .mcp-displayed-result-xml {
             white-space: pre-wrap;
@@ -1087,9 +1195,14 @@ if (window.location.href.includes("gemini.google.com")) {
     console.log("Not on Gemini page, skipping UI and observer initialization");
 }
 
-// Listen for messages from the popup
+// Global variable to track native host connection status
+let isNativeHostConnected = false;
+let nativeHostConnectionError = null;
+
+// Listen for messages from the popup and background script
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("Content script received message:", message);
+    
     if (message.type === 'TOGGLE_UI') {
         console.log("Toggling UI visibility:", message.show);
         if (message.show) {
@@ -1101,6 +1214,16 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     } else if (message.type === 'REQUEST_INJECT_PROMPT') {
         console.log("Content script received REQUEST_INJECT_PROMPT message");
+        
+        // Check if native host is connected before sending the request
+        if (!isNativeHostConnected) {
+            console.error("Cannot request prompt: Native host is not connected");
+            sendResponse({ 
+                status: 'Error: Native host is not connected', 
+                error: nativeHostConnectionError || "Unknown connection error" 
+            });
+            return true;
+        }
         
         // Send message to background script to request a prompt
         // This ensures the tabId is properly included
@@ -1135,6 +1258,34 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
         
         sendResponse({ status: `MCP Client ${isMcpClientEnabled ? 'enabled' : 'disabled'}` });
         return true;
+    } else if (message.type === 'NATIVE_HOST_CONNECTION_STATUS') {
+        // Update the connection status
+        isNativeHostConnected = message.payload.connected;
+        nativeHostConnectionError = message.payload.error || null;
+        
+        // Update the UI if it's visible
+        updateConnectionStatusUI();
+        
+        sendResponse({ status: 'Connection status updated' });
+        return true;
     }
     return false;
 });
+
+// Function to update the connection status UI
+function updateConnectionStatusUI() {
+    const statusIndicator = document.getElementById('mcp-connection-status');
+    if (!statusIndicator) return;
+    
+    if (isNativeHostConnected) {
+        statusIndicator.textContent = 'Connected';
+        statusIndicator.classList.remove('mcp-status-disconnected');
+        statusIndicator.classList.add('mcp-status-connected');
+        statusIndicator.title = 'Native host is connected';
+    } else {
+        statusIndicator.textContent = 'Disconnected';
+        statusIndicator.classList.remove('mcp-status-connected');
+        statusIndicator.classList.add('mcp-status-disconnected');
+        statusIndicator.title = nativeHostConnectionError || 'Native host is not connected';
+    }
+}
