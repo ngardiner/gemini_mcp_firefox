@@ -1,0 +1,87 @@
+name: Build and Sign Firefox Extension
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'  # Run workflow on version tags, e.g. v1.0.0
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allows manual triggering from GitHub UI
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Fetch all history for proper versioning
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '16'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        npm install -g web-ext
+        npm install semver
+
+    - name: Update version in manifest.json
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: |
+        # Extract version from tag (remove 'v' prefix)
+        VERSION=$(echo ${{ github.ref }} | sed 's/refs\/tags\/v//')
+        echo "Setting version to $VERSION"
+        
+        # Update version in manifest.json
+        jq ".version = \"$VERSION\"" manifest.json > manifest.json.tmp
+        mv manifest.json.tmp manifest.json
+        
+        echo "Updated manifest.json with version $VERSION"
+        cat manifest.json
+
+    - name: Lint extension
+      run: web-ext lint
+
+    - name: Build extension
+      run: web-ext build --overwrite-dest
+
+    - name: Upload extension artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: firefox-extension
+        path: web-ext-artifacts/*.zip
+        if-no-files-found: error
+
+    # Only sign the extension when pushing to main or creating a tag
+    - name: Sign extension with Mozilla
+      if: success() && (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
+      run: |
+        web-ext sign --api-key ${{ secrets.MOZILLA_API_KEY }} --api-secret ${{ secrets.MOZILLA_API_SECRET }}
+      env:
+        MOZILLA_API_KEY: ${{ secrets.MOZILLA_API_KEY }}
+        MOZILLA_API_SECRET: ${{ secrets.MOZILLA_API_SECRET }}
+
+    - name: Upload signed extension
+      if: success() && (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
+      uses: actions/upload-artifact@v3
+      with:
+        name: signed-firefox-extension
+        path: web-ext-artifacts/*.xpi
+        if-no-files-found: warn
+
+    # Create a GitHub release when a tag is pushed
+    - name: Create GitHub Release
+      if: success() && startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: web-ext-artifacts/*.xpi
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

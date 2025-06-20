@@ -1,0 +1,38 @@
+name: Build Firefox Extension
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allows manual triggering from GitHub UI
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '16'
+        cache: 'npm'
+
+    - name: Install web-ext
+      run: npm install -g web-ext
+
+    - name: Lint extension
+      run: web-ext lint
+
+    - name: Build extension
+      run: web-ext build --overwrite-dest
+
+    - name: Upload extension artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: firefox-extension
+        path: web-ext-artifacts/*.zip
+        if-no-files-found: error

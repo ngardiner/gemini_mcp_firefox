@@ -1,0 +1,31 @@
+{
+  "name": "gemini-mcp-client",
+  "version": "1.0.0",
+  "description": "Firefox extension for Gemini MCP Client",
+  "scripts": {
+    "start": "web-ext run",
+    "lint": "web-ext lint",
+    "build": "web-ext build --overwrite-dest",
+    "sign": "web-ext sign",
+    "dev": "./scripts/dev.sh run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/gemini-mcp-client.git"
+  },
+  "keywords": [
+    "firefox",
+    "extension",
+    "gemini",
+    "mcp"
+  ],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/yourusername/gemini-mcp-client/issues"
+  },
+  "homepage": "https://github.com/yourusername/gemini-mcp-client#readme",
+  "devDependencies": {
+    "web-ext": "^7.6.2"
+  }
+}
