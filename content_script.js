@@ -166,8 +166,8 @@ function processPotentialMessageContainer(containerElement) {
             // Use the unescapeHtmlEntities function directly on the container text
             const unescapedDirectXml = unescapeHtmlEntities(directText);
             
-            // Check if it's a tool result, using the same logic as v0.3
-            if (unescapedDirectXml.trim().startsWith("<tool_result") && 
+            // Check if it's a tool result, using the same logic as v0.3 but with extra whitespace handling
+            if (unescapedDirectXml.trim().replace(/^\s+/, "").startsWith("<tool_result") && 
                 unescapedDirectXml.trim().endsWith("</tool_result>")) {
                 handleFoundCodeElement(containerElement, "directContainerText", true, unescapedDirectXml);
             }
@@ -185,8 +185,8 @@ function processPotentialMessageContainer(containerElement) {
     // Use the unescapeHtmlEntities function - this is the key part from v0.3
     const unescapedXml = unescapeHtmlEntities(reconstructedXml);
 
-    // Check if it's a tool result, using trim() on the unescaped XML - exactly as in v0.3
-    if (unescapedXml.trim().startsWith("<tool_result") && unescapedXml.trim().endsWith("</tool_result>")) {
+    // Check if it's a tool result, using trim() on the unescaped XML - with extra whitespace handling
+    if (unescapedXml.trim().replace(/^\s+/, "").startsWith("<tool_result") && unescapedXml.trim().endsWith("</tool_result>")) {
         handleFoundCodeElement(containerElement, "messageContainerResult", true, unescapedXml);
     } 
     // Check if it's a tool result response that has been stripped of its XML tags
