@@ -46,11 +46,9 @@ function sendToNativeHost(message) {
   // Normal message sending path
   if (port) {
     try {
-      console.log("Sending message to native host:", message);
       port.postMessage(message);
     } catch (e) {
       console.error("Error sending message to native host:", e);
-      console.error("Message was:", message);
       // Attempt to reconnect or handle error
       port = null; // Reset port
       connectToNativeHost(); // Try to reconnect
@@ -58,7 +56,6 @@ function sendToNativeHost(message) {
   } else {
     console.error("Native host port not connected. Attempting to reconnect.");
     connectToNativeHost(); // Try to connect if not already
-    // Optionally queue the message or inform the user/content script
   }
 }
 
@@ -269,11 +266,10 @@ function connectToNativeHost() {
 
 // Listen for messages from content scripts
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log("Message received in background script from content script:", message);
-  console.log("Sender information:", sender);
+  // Process message from content script
   
   if (message.type === "GET_PROMPT") {
-    console.log("Background: GET_PROMPT message received from content script.");
+    // Handle GET_PROMPT message
     
     // Check if sender.tab exists and has an id
     if (!sender.tab) {
@@ -426,7 +422,7 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
           });
         }
         
-        console.log("Sending to native host:", messageToNative);
+        // Send the message to the native host
         sendToNativeHost(messageToNative);
     } else {
         console.error("Failed to connect to native host. Message not sent.");

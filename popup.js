@@ -1,5 +1,4 @@
 document.addEventListener('DOMContentLoaded', function() {
-    console.log("Popup loaded");
     const toggleSwitch = document.getElementById('mcp-client-toggle');
     const injectPromptButton = document.getElementById('inject-prompt-button');
     const statusMessage = document.getElementById('status-message');
@@ -17,7 +16,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .then(response => {
-                console.log("Response from content script:", response);
+                // Process response from content script
             })
             .catch(error => {
                 console.error("Error sending message to tab:", error);
@@ -49,7 +48,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function checkConnectionStatus() {
         browser.runtime.sendMessage({ type: "CHECK_NATIVE_HOST_CONNECTION" })
             .then(response => {
-                console.log("Native host connection status check response:", response);
+                // Update connection status based on response
                 // Update the connection status based on the response
                 updateConnectionStatus(response.connected, response.error);
             })
@@ -67,9 +66,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
     // Listen for connection status updates
     browser.runtime.onMessage.addListener((message) => {
-        console.log("Popup received message:", message);
         if (message.type === 'NATIVE_HOST_CONNECTION_STATUS') {
-            console.log("Received connection status update:", message.payload);
             updateConnectionStatus(message.payload.connected, message.payload.error);
         }
     });
@@ -108,7 +105,7 @@ document.addEventListener('DOMContentLoaded', function() {
         browser.tabs.query({ active: true, currentWindow: true })
             .then(tabs => {
                 if (tabs.length > 0) {
-                    console.log("Sending request to content script in tab:", tabs[0].id);
+                    // Send request to content script
                     return browser.tabs.sendMessage(tabs[0].id, { 
                         type: "REQUEST_INJECT_PROMPT" 
                     });
@@ -117,7 +114,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .then(response => {
-                console.log("Response from content script:", response);
                 updateStatus('Prompt request sent to content script');
             })
             .catch(error => {

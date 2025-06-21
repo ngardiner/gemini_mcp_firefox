@@ -55,30 +55,25 @@ function safeNormalizeXml(xmlString) {
 
 // Function to inject text and send the message using polling for the send button
 async function injectAndSendMessage(textToInject, isToolResult = false) {
-    console.log(`Gemini MCP Client [DEBUG]: injectAndSendMessage called. isToolResult: ${isToolResult}, text: "${textToInject.substring(0, 50)}..."`);
-
+    // Only log in case of errors or important events
     const chatInputSelector = 'div.ql-editor.textarea.new-input-ui p';
-    console.log("Gemini MCP Client [DEBUG]: Attempting to find chat input with selector:", chatInputSelector);
     const chatInputField = document.querySelector(chatInputSelector);
 
     if (!chatInputField) {
         console.error("Gemini MCP Client [ERROR]: Chat input field not found with selector:", chatInputSelector, "for injectAndSendMessage.");
         return Promise.reject("Chat input field not found.");
     }
-    console.log("Gemini MCP Client [DEBUG]: Found chat input field for injection:", chatInputField);
 
     if (isToolResult) {
         // For tool results (raw XML), inject as textContent directly.
         // No HTML wrapping or escaping, as it's raw XML to be sent.
         chatInputField.textContent = textToInject;
-        console.log("Gemini MCP Client [DEBUG]: Injecting raw XML for tool result into input field:", textToInject.substring(0, 100) + "...");
         
         // Store the tool result in a global variable for debugging
         window.lastToolResult = textToInject;
     } else {
         // For prompts (plain text), inject as textContent
         chatInputField.textContent = textToInject;
-        console.log("Gemini MCP Client [DEBUG]: Injected plain text for prompt.");
     }
 
     // Dispatch events (common for both cases)
@@ -152,12 +147,8 @@ function sendToolCallToBackground(toolCallData) {
 
 function processPotentialMessageContainer(containerElement) {
     if (!containerElement || containerElement.dataset.mcpProcessed === 'true') {
-        // console.log("Gemini MCP Client [DEBUG]: Skipping already processed message container or invalid element:", containerElement);
         return;
     }
-
-    // Log when this specific processor is entered
-    console.log("Gemini MCP Client [DEBUG]: processPotentialMessageContainer triggered for:", containerElement);
 
     // First try with the original selector that worked in v0.3
     let lineElements = containerElement.querySelectorAll('p.query-text-line');
@@ -168,8 +159,6 @@ function processPotentialMessageContainer(containerElement) {
     }
     
     if (lineElements.length === 0) {
-        console.log("Gemini MCP Client [DEBUG]: No text elements found in container:", containerElement);
-        
         // If no line elements, check if the container itself contains the text directly
         if (containerElement.textContent) {
             const directText = containerElement.textContent.trim();
@@ -180,7 +169,6 @@ function processPotentialMessageContainer(containerElement) {
             // Check if it's a tool result, using the same logic as v0.3
             if (unescapedDirectXml.trim().startsWith("<tool_result") && 
                 unescapedDirectXml.trim().endsWith("</tool_result>")) {
-                console.log("Gemini MCP Client [DEBUG]: Identified tool result in direct container text");
                 handleFoundCodeElement(containerElement, "directContainerText", true, unescapedDirectXml);
             }
         }
@@ -197,15 +185,8 @@ function processPotentialMessageContainer(containerElement) {
     // Use the unescapeHtmlEntities function - this is the key part from v0.3
     const unescapedXml = unescapeHtmlEntities(reconstructedXml);
 
-    console.log("Gemini MCP Client [DEBUG]: Reconstructed and Unescaped XML from message container:", 
-                unescapedXml.substring(0, 200) + "...");
-
     // Check if it's a tool result, using trim() on the unescaped XML - exactly as in v0.3
     if (unescapedXml.trim().startsWith("<tool_result") && unescapedXml.trim().endsWith("</tool_result>")) {
-        console.log("Gemini MCP Client [DEBUG]: Identified tool result in message container:", containerElement);
-        
-        // Call handleFoundCodeElement, passing the container as the element to be replaced,
-        // and the unescaped XML - exactly as in v0.3
         handleFoundCodeElement(containerElement, "messageContainerResult", true, unescapedXml);
     } 
     // Check if it's a tool result response that has been stripped of its XML tags
@@ -213,8 +194,6 @@ function processPotentialMessageContainer(containerElement) {
     else if (unescapedXml.trim().match(/\s+\d+\s+\w+\s+\{/) || 
              unescapedXml.includes("success") && unescapedXml.includes("message") && 
              (unescapedXml.includes("objects") || unescapedXml.includes("result"))) {
-        
-        console.log("Gemini MCP Client [DEBUG]: Identified stripped tool result in message container:", containerElement);
         
         // Extract the call_id and tool_name from the text if possible
         const parts = unescapedXml.trim().split(/\s+/);
@@ -235,8 +214,6 @@ function processPotentialMessageContainer(containerElement) {
         
         // Call handleFoundCodeElement with the reconstructed XML
         handleFoundCodeElement(containerElement, "reconstructedToolResult", true, reconstructedXml);
-    } else {
-        // console.log("Gemini MCP Client [DEBUG]: Reconstructed XML did not match tool_result structure:", unescapedXml.substring(0,100));
     }
 }
 
@@ -704,53 +681,31 @@ document.addEventListener('click', function(event) {
 
 // Function to handle responses from the background script (coming from native host or for prompts)
 function handleBackgroundMessages(message) {
-  console.log("Gemini MCP Client [DEBUG]: Received message from background script:", message);
   if (message.type === "FROM_NATIVE_HOST" && message.payload && message.payload.text_response) {
-    console.log("Gemini MCP Client [DEBUG]: Received text_response from native host for injection:", 
-               message.payload.text_response.substring(0, 100) + "...");
-               
     // Check if this is a tool result
     const isToolResultResponse = message.payload.text_response.includes("<tool_result");
-    console.log("Is tool result response:", isToolResultResponse);
     
     injectAndSendMessage(message.payload.text_response, true) // isToolResult is true for native host responses
-        .then(success => {
-            if (success) {
-                console.log("Gemini MCP Client [DEBUG]: Successfully injected and sent native host response via injectAndSendMessage.");
-            }
-        })
         .catch(error => {
-            console.error("Gemini MCP Client [ERROR]: Error injecting native host response via injectAndSendMessage:", error.message);
+            console.error("Gemini MCP Client [ERROR]: Error injecting native host response:", error.message);
         });
   } else if (message.type === "PROMPT_FROM_NATIVE_HOST" && message.payload && message.payload.prompt) {
-    // console.log("Gemini MCP Client [DEBUG]: PROMPT_FROM_NATIVE_HOST received in content_script:", message); // Added per requirement
     const promptToInject = message.payload.prompt;
     const isCustomPrompt = message.payload.isCustomPrompt === true;
     
-    console.log(`Gemini MCP Client [DEBUG]: Received ${isCustomPrompt ? 'custom' : 'system'} prompt:`, 
-                promptToInject.substring(0, 50) + "...");
-    
     try {
       injectAndSendMessage(promptToInject, false) // isToolResult is false for prompts
-          .then(success => {
-              if (success) {
-                  console.log(`Gemini MCP Client [DEBUG]: Successfully injected and sent ${isCustomPrompt ? 'custom' : 'system'} prompt.`);
-              }
-          })
           .catch(error => {
-              // This catches errors from the promise returned by injectAndSendMessage (e.g., async errors, rejections)
-              console.error(`Gemini MCP Client [ERROR]: Error injecting ${isCustomPrompt ? 'custom' : 'system'} prompt (async):`, 
-                           error.message, error);
+              console.error(`Gemini MCP Client [ERROR]: Error injecting ${isCustomPrompt ? 'custom' : 'system'} prompt:`, 
+                           error.message);
           });
     } catch (e) {
-      // This catches synchronous errors that might occur when injectAndSendMessage is called, before a promise is returned.
-      console.error(`Gemini MCP Client [CONTENT_SCRIPT_ERROR]: Synchronous error during ${isCustomPrompt ? 'custom' : 'system'} prompt injection:`, 
-                   e, e.message, e.stack);
+      console.error("Gemini MCP Client [ERROR]: Synchronous error during prompt injection:", e.message);
     }
   } else if (message.type === "FROM_NATIVE_HOST") {
-    console.warn("Gemini MCP Client [DEBUG]: Received FROM_NATIVE_HOST message but no text_response found.", message.payload);
+    console.warn("Gemini MCP Client: Received FROM_NATIVE_HOST message but no text_response found.");
   } else if (message.type === "PROMPT_FROM_NATIVE_HOST") {
-    console.warn("Gemini MCP Client [DEBUG]: Received PROMPT_FROM_NATIVE_HOST message but no prompt found.", message.payload);
+    console.warn("Gemini MCP Client: Received PROMPT_FROM_NATIVE_HOST message but no prompt found.");
   }
 }
 
@@ -987,19 +942,15 @@ function finalProcessMutations(mutationsList, _observer) {
                                 'div.model-response-text, pre, div.response-container, div.markdown-container'
                             );
                             
-                            if (additionalContainers.length > 0) {
-                                console.log(`Found ${additionalContainers.length} additional potential containers in node`);
-                                additionalContainers.forEach(container => {
-                                    processPotentialMessageContainer(container);
-                                });
-                            }
+                            additionalContainers.forEach(container => {
+                                processPotentialMessageContainer(container);
+                            });
                             
                             // Also check for code elements that might contain tool results directly
                             const codeElements = node.querySelectorAll('code');
                             codeElements.forEach(codeEl => {
                                 if (!codeEl.closest('.mcp-tool-call-bar')) {
                                     if (codeEl.textContent && codeEl.textContent.includes("<tool_result")) {
-                                        console.log("Found code element with potential tool result XML:", codeEl);
                                         handleFoundCodeElement(codeEl, "code element with tool result", false, null);
                                     } 
                                     // Check for stripped tool results in code elements
@@ -1009,8 +960,6 @@ function finalProcessMutations(mutationsList, _observer) {
                                                codeEl.textContent.includes("message") &&
                                                (codeEl.textContent.includes("objects") || 
                                                 codeEl.textContent.includes("result"))))) {
-                                        
-                                        console.log("Found code element with stripped tool result:", codeEl);
                                         
                                         // Extract the call_id and tool_name if possible
                                         const text = codeEl.textContent.trim();
@@ -1111,20 +1060,15 @@ function initializeTargetNodeAndObserver(forceStart = false) {
 browser.runtime.onMessage.addListener(handleBackgroundMessages); // handleBackgroundMessages must be defined
 
 // Initial setup
-console.log("Content script loaded on:", window.location.href);
-
 // Check if we're on the correct page
 if (window.location.href.includes("gemini.google.com")) {
-    console.log("On Gemini page, initializing observer");
     // Initialize styles but don't create the UI yet
     injectStyles();
     
     // Initialize and start the observer after styles are injected
     setTimeout(() => {
-        initializeTargetNodeAndObserver(true); // initializeTargetNodeAndObserver must be defined
+        initializeTargetNodeAndObserver(true);
     }, 1000);
-} else {
-    console.log("Not on Gemini page, skipping UI and observer initialization");
 }
 
 // Global variable to track native host connection status
@@ -1133,11 +1077,7 @@ let nativeHostConnectionError = null;
 
 // Listen for messages from the popup and background script
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log("Content script received message:", message);
-    
     if (message.type === 'REQUEST_INJECT_PROMPT') {
-        console.log("Content script received REQUEST_INJECT_PROMPT message");
-        
         // Check if native host is connected before sending the request
         if (!isNativeHostConnected) {
             console.error("Cannot request prompt: Native host is not connected");
@@ -1155,7 +1095,6 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
             url: window.location.href
         })
         .then(response => {
-            console.log("Content script: Response from background script for GET_PROMPT:", response);
             sendResponse({ status: 'Prompt request forwarded to background script' });
         })
         .catch(error => {
