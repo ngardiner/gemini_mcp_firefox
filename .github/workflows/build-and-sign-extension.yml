@@ -61,7 +61,7 @@ jobs:
     - name: Sign extension with Mozilla
       if: success() && (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
       run: |
-        web-ext sign --api-key ${{ secrets.MOZILLA_API_KEY }} --api-secret ${{ secrets.MOZILLA_API_SECRET }}
+        web-ext sign --api-key ${{ secrets.MOZILLA_API_KEY }} --api-secret ${{ secrets.MOZILLA_API_SECRET }} --channel unlisted
       env:
         MOZILLA_API_KEY: ${{ secrets.MOZILLA_API_KEY }}
         MOZILLA_API_SECRET: ${{ secrets.MOZILLA_API_SECRET }}
