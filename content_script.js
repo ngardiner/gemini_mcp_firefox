@@ -661,22 +661,27 @@ function handleBackgroundMessages(message) {
   } else if (message.type === "PROMPT_FROM_NATIVE_HOST" && message.payload && message.payload.prompt) {
     // console.log("Gemini MCP Client [DEBUG]: PROMPT_FROM_NATIVE_HOST received in content_script:", message); // Added per requirement
     const promptToInject = message.payload.prompt;
-    // console.log("Gemini MCP Client [DEBUG]: Extracted prompt:", promptToInject); // Confirming extraction
-    // console.log("Gemini MCP Client [DEBUG]: About to call injectAndSendMessage with prompt:", promptToInject); // Added per requirement
+    const isCustomPrompt = message.payload.isCustomPrompt === true;
+    
+    console.log(`Gemini MCP Client [DEBUG]: Received ${isCustomPrompt ? 'custom' : 'system'} prompt:`, 
+                promptToInject.substring(0, 50) + "...");
+    
     try {
       injectAndSendMessage(promptToInject, false) // isToolResult is false for prompts
           .then(success => {
               if (success) {
-                  // console.log("Gemini MCP Client [DEBUG]: Successfully injected and sent prompt from native host via injectAndSendMessage.");
+                  console.log(`Gemini MCP Client [DEBUG]: Successfully injected and sent ${isCustomPrompt ? 'custom' : 'system'} prompt.`);
               }
           })
           .catch(error => {
               // This catches errors from the promise returned by injectAndSendMessage (e.g., async errors, rejections)
-              console.error("Gemini MCP Client [ERROR]: Error injecting prompt from native host via injectAndSendMessage (async):", error.message, error);
+              console.error(`Gemini MCP Client [ERROR]: Error injecting ${isCustomPrompt ? 'custom' : 'system'} prompt (async):`, 
+                           error.message, error);
           });
     } catch (e) {
       // This catches synchronous errors that might occur when injectAndSendMessage is called, before a promise is returned.
-      console.error("Gemini MCP Client [CONTENT_SCRIPT_ERROR]: Synchronous error during injectAndSendMessage call for prompt:", e, e.message, e.stack);
+      console.error(`Gemini MCP Client [CONTENT_SCRIPT_ERROR]: Synchronous error during ${isCustomPrompt ? 'custom' : 'system'} prompt injection:`, 
+                   e, e.message, e.stack);
     }
   } else if (message.type === "FROM_NATIVE_HOST") {
     console.warn("Gemini MCP Client [DEBUG]: Received FROM_NATIVE_HOST message but no text_response found.", message.payload);
@@ -685,201 +690,8 @@ function handleBackgroundMessages(message) {
   }
 }
 
-// Function to create and inject UI elements
-function setupUI() {
-  injectStyles(); // Call the function to inject CSS styles
-
-  // Check if UI already exists and remove it
-  let existingContainer = document.getElementById('mcp-client-ui-container');
-  if (existingContainer) {
-    console.log("UI container already exists, removing it");
-    existingContainer.remove();
-  }
-
-  // Also check for any other UI containers that might have been created
-  document.querySelectorAll('.mcp-ui-container').forEach(container => {
-    if (container.id !== 'mcp-client-ui-container') {
-      console.log("Found additional UI container, removing it");
-      container.remove();
-    }
-  });
-
-  console.log("Creating new UI container");
-  // Create UI container
-  const uiContainer = document.createElement('div');
-  uiContainer.id = 'mcp-client-ui-container';
-  uiContainer.classList.add('mcp-ui-container');
-  
-  // Set initial display to none - will be shown when popup is clicked
-  uiContainer.style.display = 'none';
-
-  // Toggle Switch
-  const toggleLabel = document.createElement('label');
-  toggleLabel.htmlFor = 'mcp-client-toggle';
-  toggleLabel.textContent = 'Enable MCP Client: ';
-  toggleLabel.classList.add('mcp-toggle-label');
-
-  const toggleSwitch = document.createElement('input');
-  toggleSwitch.type = 'checkbox';
-  toggleSwitch.id = 'mcp-client-toggle';
-  toggleSwitch.checked = isMcpClientEnabled;
-  toggleSwitch.classList.add('mcp-toggle-switch');
-
-  toggleSwitch.addEventListener('change', () => {
-    isMcpClientEnabled = toggleSwitch.checked;
-    
-    // Save the state to storage
-    browser.storage.local.set({ mcpClientEnabled: isMcpClientEnabled }).catch(error => {
-      console.error("Error saving state:", error);
-    });
-    
-    if (isMcpClientEnabled) {
-      startObserver(); // Depends on startObserver being defined
-    } else {
-      stopObserver(); // Depends on stopObserver being defined
-    }
-  });
-
-  // Connection Status Indicator
-  const statusContainer = document.createElement('div');
-  statusContainer.classList.add('mcp-status-container');
-  
-  const statusLabel = document.createElement('span');
-  statusLabel.textContent = 'Status: ';
-  statusLabel.classList.add('mcp-status-label');
-  
-  const statusIndicator = document.createElement('span');
-  statusIndicator.id = 'mcp-connection-status';
-  statusIndicator.classList.add('mcp-connection-status');
-  // Set initial status based on the global variable
-  if (isNativeHostConnected) {
-    statusIndicator.textContent = 'Connected';
-    statusIndicator.classList.add('mcp-status-connected');
-    statusIndicator.title = 'Native host is connected';
-  } else {
-    statusIndicator.textContent = 'Disconnected';
-    statusIndicator.classList.add('mcp-status-disconnected');
-    statusIndicator.title = nativeHostConnectionError || 'Native host is not connected';
-  }
-  
-  statusContainer.appendChild(statusLabel);
-  statusContainer.appendChild(statusIndicator);
-
-  // Dummy Prompt Button
-  const dummyPromptButton = document.createElement('button');
-  dummyPromptButton.id = 'mcp-inject-dummy-prompt';
-  dummyPromptButton.textContent = 'Inject Prompt';
-  dummyPromptButton.classList.add('mcp-dummy-prompt-button');
-  
-  // Disable the button if the native host is not connected
-  if (!isNativeHostConnected) {
-    dummyPromptButton.disabled = true;
-    dummyPromptButton.title = 'Native host is not connected';
-  }
-
-  dummyPromptButton.addEventListener('click', () => {
-    // Check if native host is connected before sending the request
-    if (!isNativeHostConnected) {
-      console.error("Cannot request prompt: Native host is not connected");
-      alert("Cannot inject prompt: Native host is not connected");
-      return;
-    }
-    
-    console.log("Gemini MCP Client [DEBUG]: Inject prompt button clicked. Requesting prompt from background script.");
-    
-    // Disable the button to prevent multiple clicks
-    dummyPromptButton.disabled = true;
-    dummyPromptButton.textContent = 'Requesting...';
-    
-    // Get the current tab ID to include in the message
-    const currentUrl = window.location.href;
-    console.log("Current URL:", currentUrl);
-    
-    // Send message to background script to request a prompt
-    browser.runtime.sendMessage({ 
-      type: "GET_PROMPT",
-      url: currentUrl  // Include the URL to help identify the tab
-    })
-    .then(response => {
-      console.log("Gemini MCP Client [DEBUG]: Response from background script for GET_PROMPT:", response);
-      // Re-enable the button after a short delay
-      setTimeout(() => {
-        dummyPromptButton.disabled = false;
-        dummyPromptButton.textContent = 'Inject Prompt';
-      }, 1000);
-    })
-    .catch(error => {
-      console.error("Gemini MCP Client [ERROR]: Error sending GET_PROMPT message to background script:", error);
-      // Re-enable the button after a short delay
-      setTimeout(() => {
-        dummyPromptButton.disabled = false;
-        dummyPromptButton.textContent = 'Inject Prompt';
-      }, 1000);
-    });
-  });
-
-  // Create a container for the toggle switch
-  const toggleDiv = document.createElement('div');
-  toggleDiv.classList.add('mcp-toggle-container');
-  toggleDiv.appendChild(toggleLabel);
-  toggleDiv.appendChild(toggleSwitch);
-
-  // Add all elements to the UI container
-  uiContainer.appendChild(toggleDiv);
-  uiContainer.appendChild(statusContainer);
-  uiContainer.appendChild(dummyPromptButton);
-  
-  // Add the UI container to the document
-  document.body.appendChild(uiContainer);
-  
-  // Check the native host connection status
-  browser.runtime.sendMessage({ type: "CHECK_NATIVE_HOST_CONNECTION" })
-    .then(response => {
-      console.log("Native host connection status:", response);
-      // The background script will send a NATIVE_HOST_CONNECTION_STATUS message in response
-    })
-    .catch(error => {
-      console.error("Error checking native host connection:", error);
-    });
-  
-  return uiContainer;
-}
-
-// Functions to show/hide the UI
-function showUI() {
-  console.log("showUI called");
-  let uiContainer = document.getElementById('mcp-client-ui-container');
-  if (!uiContainer) {
-    console.log("UI container not found, creating it");
-    uiContainer = setupUI();
-  }
-  console.log("Setting UI container display to block");
-  uiContainer.style.display = 'block';
-  
-  // Make sure it's visible by setting opacity and z-index
-  uiContainer.style.opacity = '1';
-  uiContainer.style.zIndex = '10000';
-  
-  // Log the UI container's computed style to verify it's visible
-  const computedStyle = window.getComputedStyle(uiContainer);
-  console.log("UI container computed style:", {
-    display: computedStyle.display,
-    opacity: computedStyle.opacity,
-    zIndex: computedStyle.zIndex,
-    position: computedStyle.position
-  });
-}
-
-function hideUI() {
-  console.log("hideUI called");
-  const uiContainer = document.getElementById('mcp-client-ui-container');
-  if (uiContainer) {
-    console.log("Removing UI container from DOM");
-    uiContainer.remove(); // Remove it completely instead of just hiding it
-  } else {
-    console.log("UI container not found when trying to hide");
-  }
-}
+// We've removed the setupUI, showUI, and hideUI functions since we're now using only the popup UI
+// The content script will still handle tool calls and respond to messages from the popup
 
 // Style injection function
 let stylesInjected = false;
@@ -1203,16 +1015,7 @@ let nativeHostConnectionError = null;
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("Content script received message:", message);
     
-    if (message.type === 'TOGGLE_UI') {
-        console.log("Toggling UI visibility:", message.show);
-        if (message.show) {
-            showUI();
-        } else {
-            hideUI();
-        }
-        sendResponse({ status: 'UI visibility updated' });
-        return true;
-    } else if (message.type === 'REQUEST_INJECT_PROMPT') {
+    if (message.type === 'REQUEST_INJECT_PROMPT') {
         console.log("Content script received REQUEST_INJECT_PROMPT message");
         
         // Check if native host is connected before sending the request
@@ -1263,29 +1066,8 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
         isNativeHostConnected = message.payload.connected;
         nativeHostConnectionError = message.payload.error || null;
         
-        // Update the UI if it's visible
-        updateConnectionStatusUI();
-        
         sendResponse({ status: 'Connection status updated' });
         return true;
     }
     return false;
 });
-
-// Function to update the connection status UI
-function updateConnectionStatusUI() {
-    const statusIndicator = document.getElementById('mcp-connection-status');
-    if (!statusIndicator) return;
-    
-    if (isNativeHostConnected) {
-        statusIndicator.textContent = 'Connected';
-        statusIndicator.classList.remove('mcp-status-disconnected');
-        statusIndicator.classList.add('mcp-status-connected');
-        statusIndicator.title = 'Native host is connected';
-    } else {
-        statusIndicator.textContent = 'Disconnected';
-        statusIndicator.classList.remove('mcp-status-connected');
-        statusIndicator.classList.add('mcp-status-disconnected');
-        statusIndicator.title = nativeHostConnectionError || 'Native host is not connected';
-    }
-}

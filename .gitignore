@@ -1,5 +1,6 @@
 venv/*
 mcp_servers_config.json
+run_native_host.sh
 
 # Build artifacts
 web-ext-artifacts/

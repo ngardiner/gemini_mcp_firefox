@@ -3,6 +3,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const toggleSwitch = document.getElementById('mcp-client-toggle');
     const injectPromptButton = document.getElementById('inject-prompt-button');
     const statusMessage = document.getElementById('status-message');
+    const connectionStatus = document.getElementById('connection-status');
+    
+    // Set up a periodic check for connection status
+    let connectionCheckInterval = null;
     
     // Helper function to send message to active tab
     function sendMessageToActiveTab(message) {
@@ -26,9 +30,49 @@ document.addEventListener('DOMContentLoaded', function() {
         statusMessage.textContent = message;
     }
     
-    // When popup is opened, show the UI in the content script
-    console.log("Sending message to show UI");
-    sendMessageToActiveTab({ type: 'TOGGLE_UI', show: true });
+    // Function to update connection status display
+    function updateConnectionStatus(isConnected, errorMessage) {
+        if (isConnected) {
+            connectionStatus.textContent = 'Connected';
+            connectionStatus.className = 'connection-status status-connected';
+            connectionStatus.title = 'Native host is connected';
+            injectPromptButton.disabled = false;
+        } else {
+            connectionStatus.textContent = 'Disconnected';
+            connectionStatus.className = 'connection-status status-disconnected';
+            connectionStatus.title = errorMessage || 'Native host is not connected';
+            injectPromptButton.disabled = true;
+        }
+    }
+    
+    // Function to check connection status
+    function checkConnectionStatus() {
+        browser.runtime.sendMessage({ type: "CHECK_NATIVE_HOST_CONNECTION" })
+            .then(response => {
+                console.log("Native host connection status check response:", response);
+                // Update the connection status based on the response
+                updateConnectionStatus(response.connected, response.error);
+            })
+            .catch(error => {
+                console.error("Error checking native host connection:", error);
+                updateConnectionStatus(false, error.message);
+            });
+    }
+    
+    // Initial connection status check
+    checkConnectionStatus();
+    
+    // Set up periodic connection status check (every 2 seconds)
+    connectionCheckInterval = setInterval(checkConnectionStatus, 2000);
+        
+    // Listen for connection status updates
+    browser.runtime.onMessage.addListener((message) => {
+        console.log("Popup received message:", message);
+        if (message.type === 'NATIVE_HOST_CONNECTION_STATUS') {
+            console.log("Received connection status update:", message.payload);
+            updateConnectionStatus(message.payload.connected, message.payload.error);
+        }
+    });
 
     // Load saved state
     browser.storage.local.get('mcpClientEnabled').then(result => {
@@ -82,8 +126,10 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     });
     
-    // Hide UI when popup is closed
+    // Clean up when popup is closed
     window.addEventListener('unload', function() {
-        sendMessageToActiveTab({ type: 'TOGGLE_UI', show: false });
+        if (connectionCheckInterval) {
+            clearInterval(connectionCheckInterval);
+        }
     });
 });

@@ -136,24 +136,76 @@ function connectToNativeHost() {
         }
         
         // Handle different response types
-        if (response.payload && response.payload.type === "PROMPT_RESPONSE") {
-          if (response.tabId && response.payload.prompt) {
+        if (response.payload && response.payload.type === "PROMPT_RESPONSE" || 
+            (response.payload && response.payload.type === "CUSTOM_PROMPT")) {
+          // Get the prompt from the payload
+          const promptToSend = response.payload.prompt;
+          
+          if (response.tabId && promptToSend) {
             const tabId = response.tabId;
-            const promptToSend = response.payload.prompt;
             
             // Check if the tab still exists before sending the message
             browser.tabs.get(tabId).then(tab => {
               return browser.tabs.sendMessage(tabId, {
                 type: "PROMPT_FROM_NATIVE_HOST",
-                payload: { prompt: promptToSend }
+                payload: { 
+                  prompt: promptToSend,
+                  isCustomPrompt: response.payload.type === "CUSTOM_PROMPT"
+                }
               });
             }).then(() => {
               // console.log(`Background: PROMPT_FROM_NATIVE_HOST message successfully sent to tab ${tabId}`);
             }).catch(err => {
               console.error(`Background: Error sending PROMPT_FROM_NATIVE_HOST message to tab ${tabId}:`, err);
             });
+          } else if (!response.tabId && promptToSend) {
+            // No tabId provided, find an active tab with Gemini
+            console.log("Background: No tabId provided for prompt, finding active Gemini tab");
+            
+            browser.tabs.query({ active: true, currentWindow: true })
+              .then(tabs => {
+                const geminiTabs = tabs.filter(tab => tab.url && tab.url.includes("gemini.google.com"));
+                
+                if (geminiTabs.length > 0) {
+                  const activeTabId = geminiTabs[0].id;
+                  console.log("Background: Found active Gemini tab:", activeTabId);
+                  
+                  return browser.tabs.sendMessage(activeTabId, {
+                    type: "PROMPT_FROM_NATIVE_HOST",
+                    payload: { 
+                      prompt: promptToSend,
+                      isCustomPrompt: response.payload.type === "CUSTOM_PROMPT"
+                    }
+                  });
+                } else {
+                  // Try any tab with Gemini
+                  return browser.tabs.query({ url: "*://gemini.google.com/*" })
+                    .then(allGeminiTabs => {
+                      if (allGeminiTabs.length > 0) {
+                        const tabId = allGeminiTabs[0].id;
+                        console.log("Background: Found Gemini tab:", tabId);
+                        
+                        return browser.tabs.sendMessage(tabId, {
+                          type: "PROMPT_FROM_NATIVE_HOST",
+                          payload: { 
+                            prompt: promptToSend,
+                            isCustomPrompt: response.payload.type === "CUSTOM_PROMPT"
+                          }
+                        });
+                      } else {
+                        throw new Error("No Gemini tabs found");
+                      }
+                    });
+                }
+              })
+              .then(() => {
+                console.log("Background: PROMPT_FROM_NATIVE_HOST message successfully sent");
+              })
+              .catch(err => {
+                console.error("Background: Error sending PROMPT_FROM_NATIVE_HOST message:", err);
+              });
           } else {
-            console.warn("Background: Malformed PROMPT_RESPONSE from native host. Missing tabId or prompt.", response);
+            console.warn("Background: Malformed PROMPT_RESPONSE from native host. Missing prompt.", response);
           }
         } else if (response.tabId && response.payload) { // Existing handling for other messages like tool results
           // Check if the tab still exists before sending the message
@@ -278,21 +330,22 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     return true; // Indicate that we might send a response asynchronously (or not)
   } else if (message.type === "CHECK_NATIVE_HOST_CONNECTION") {
-    // Send the current connection status back to the content script
+    // Send the current connection status back to the content script or popup
     const isConnected = !!port; // Convert to boolean
-    sendResponse({
+    const connectionStatus = {
       connected: isConnected,
       error: isConnected ? null : "Native host not connected"
-    });
+    };
+    
+    console.log("Responding to CHECK_NATIVE_HOST_CONNECTION with:", connectionStatus);
+    sendResponse(connectionStatus);
     
     // Also send a NATIVE_HOST_CONNECTION_STATUS message to ensure the UI is updated
+    // This is mainly for content scripts in tabs, as the popup will get the direct response
     if (sender.tab && sender.tab.id) {
       browser.tabs.sendMessage(sender.tab.id, {
         type: "NATIVE_HOST_CONNECTION_STATUS",
-        payload: {
-          connected: isConnected,
-          error: isConnected ? null : "Native host not connected"
-        }
+        payload: connectionStatus
       }).catch(err => {
         console.error("Error sending connection status to tab:", err);
       });
