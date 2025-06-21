@@ -14,7 +14,7 @@ This lightweight Firefox extension brings MCP (Model Context Protocol) capabilit
 
 ### 1. Install the Firefox Extension
 
-1. Download the latest release from the [Releases page](https://github.com/ngardiner/gemini-mcp-client/releases)
+1. Download the latest release from Mozilla: [v1.0](https://addons.mozilla.org/firefox/downloads/file/4517803/2b0a76ef242340329447-1.0.xpi)
 2. Open Firefox and navigate to `about:addons`
 3. Click the gear icon and select "Install Add-on From File..."
 4. Select the downloaded `.xpi` file
