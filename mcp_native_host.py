@@ -7,6 +7,10 @@ import json
 import struct
 import os
 import xml.etree.ElementTree as ET
+import argparse
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import parse_qs, urlparse
 
 # Helper function to run asyncio tasks
 def run_async_task(task):
@@ -143,6 +147,9 @@ SERVER_CONFIGURATIONS = []
 DISCOVERED_TOOLS = []
 PROCESSED_CALL_IDS = set()
 FORMATTED_TOOL_LIST_MD = "" # Global variable to store the formatted tool list
+API_ENABLED = False
+API_PORT = 8765
+API_SERVER = None
 
 # print_debug is now defined much earlier in the script.
 
@@ -364,6 +371,14 @@ def parse_tool_call_xml(xml_string, received_call_id_attr=None):
 
 def main():
     global DISCOVERED_TOOLS
+    
+    # Log API status
+    if API_ENABLED:
+        sys.stderr.write(f"API interface is enabled on port {API_PORT}\n")
+        sys.stderr.flush()
+    else:
+        sys.stderr.write("API interface is disabled. Use --enable-api to enable it.\n")
+        sys.stderr.flush()
 
     if load_server_configurations():
         if SERVER_CONFIGURATIONS: sys.stderr.write(f"Loaded {len(SERVER_CONFIGURATIONS)} MCP server configurations.\n"); sys.stderr.flush() # Keep summary
@@ -727,7 +742,113 @@ def main():
                 sys.stderr.write(f"Failed to send error message to extension during exception handling: {e_send}\n"); sys.stderr.flush() # Keep error
 
             if isinstance(e, struct.error): sys.stderr.write("Struct error, likely malformed message length. Exiting.\n"); sys.stderr.flush(); break # Keep critical error
+    
+    # Clean up resources before exiting
+    if API_ENABLED:
+        stop_api_server()
+
+# API Server implementation
+class MCPAPIHandler(BaseHTTPRequestHandler):
+    def _set_response(self, status_code=200, content_type='application/json'):
+        self.send_response(status_code)
+        self.send_header('Content-type', content_type)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+    
+    def do_OPTIONS(self):
+        self._set_response()
+        
+    def do_GET(self):
+        self._set_response()
+        response = {'status': 'error', 'message': 'Method not supported'}
+        self.wfile.write(json.dumps(response).encode('utf-8'))
+    
+    def do_POST(self):
+        content_length = int(self.headers['Content-Length'])
+        post_data = self.rfile.read(content_length).decode('utf-8')
+        
+        try:
+            parsed_url = urlparse(self.path)
+            endpoint = parsed_url.path
+            
+            if endpoint == '/api/send_prompt':
+                data = json.loads(post_data)
+                prompt = data.get('prompt')
+                
+                if not prompt:
+                    self._set_response(400)
+                    response = {'status': 'error', 'message': 'Missing prompt parameter'}
+                else:
+                    # Process the prompt through the MCP system
+                    sys.stderr.write(f"API: Received prompt request: {prompt[:50]}...\n")
+                    sys.stderr.flush()
+                    
+                    # This is a prototype implementation that just returns the prompt
+                    # In a real implementation, this would process the prompt through the MCP system
+                    response = {
+                        'status': 'success',
+                        'message': 'Prompt received',
+                        'prompt': prompt,
+                        'response': f"This is a prototype response for: {prompt[:50]}..."
+                    }
+                    self._set_response()
+            else:
+                self._set_response(404)
+                response = {'status': 'error', 'message': f'Endpoint {endpoint} not found'}
+        except Exception as e:
+            self._set_response(500)
+            response = {'status': 'error', 'message': f'Server error: {str(e)}'}
+        
+        self.wfile.write(json.dumps(response).encode('utf-8'))
+
+def start_api_server(port=API_PORT):
+    """Start the API server on the specified port"""
+    global API_SERVER
+    
+    server_address = ('localhost', port)
+    API_SERVER = HTTPServer(server_address, MCPAPIHandler)
+    
+    sys.stderr.write(f"Starting API server on http://localhost:{port}\n")
+    sys.stderr.flush()
+    
+    # Run the server in a separate thread
+    api_thread = threading.Thread(target=API_SERVER.serve_forever)
+    api_thread.daemon = True
+    api_thread.start()
+
+def stop_api_server():
+    """Stop the API server if it's running"""
+    global API_SERVER
+    if API_SERVER:
+        API_SERVER.shutdown()
+        API_SERVER = None
+        sys.stderr.write("API server stopped\n")
+        sys.stderr.flush()
 
 if __name__ == '__main__':
-    try: main()
-    except Exception as e: sys.stderr.write(f"Unhandled exception in main: {e}\n"); sys.stderr.flush(); sys.exit(1) # Keep critical error
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='MCP Native Host')
+    parser.add_argument('--enable-api', action='store_true', help='Enable the API server')
+    parser.add_argument('--api-port', type=int, default=API_PORT, help=f'Port for the API server (default: {API_PORT})')
+    
+    args = parser.parse_args()
+    
+    # Set global variables based on command line arguments
+    API_ENABLED = args.enable_api
+    API_PORT = args.api_port
+    
+    # Start the API server if enabled
+    if API_ENABLED:
+        start_api_server(API_PORT)
+    
+    try: 
+        main()
+    except Exception as e: 
+        sys.stderr.write(f"Unhandled exception in main: {e}\n")
+        sys.stderr.flush()
+        # Stop the API server if it's running
+        if API_ENABLED:
+            stop_api_server()
+        sys.exit(1) # Keep critical error

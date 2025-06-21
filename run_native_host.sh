@@ -12,4 +12,7 @@ PYTHON_SCRIPT="$DIR/mcp_native_host.py"
 # source "$DIR/venv/bin/activate"
 
 # Execute the Python script with the venv's interpreter
+# To enable the API, uncomment one of the lines below and comment out the last line
+# exec "$VENV_PYTHON" "$PYTHON_SCRIPT" --enable-api
+# exec "$VENV_PYTHON" "$PYTHON_SCRIPT" --enable-api --api-port 8765
 exec "$VENV_PYTHON" "$PYTHON_SCRIPT"

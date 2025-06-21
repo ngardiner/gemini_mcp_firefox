@@ -1,4 +1,5 @@
 venv/*
+mcp_servers_config.json
 
 # Build artifacts
 web-ext-artifacts/

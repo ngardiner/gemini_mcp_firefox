@@ -12,4 +12,7 @@ REM Activate venv (optional if directly calling venv python)
 REM CALL "%SCRIPT_DIR%venv\Scripts\activate.bat"
 
 REM Execute the Python script with the venv's interpreter
+REM To enable the API, uncomment one of the lines below and comment out the last line
+REM %VENV_PYTHON% %PYTHON_SCRIPT% --enable-api
+REM %VENV_PYTHON% %PYTHON_SCRIPT% --enable-api --api-port 8765
 %VENV_PYTHON% %PYTHON_SCRIPT%
