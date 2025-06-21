@@ -55,27 +55,30 @@ function safeNormalizeXml(xmlString) {
 
 // Function to inject text and send the message using polling for the send button
 async function injectAndSendMessage(textToInject, isToolResult = false) {
-    // console.log(`Gemini MCP Client [DEBUG]: injectAndSendMessage called. isToolResult: ${isToolResult}, text: "${textToInject.substring(0, 50)}..."`);
+    console.log(`Gemini MCP Client [DEBUG]: injectAndSendMessage called. isToolResult: ${isToolResult}, text: "${textToInject.substring(0, 50)}..."`);
 
     const chatInputSelector = 'div.ql-editor.textarea.new-input-ui p';
-    // console.log("Gemini MCP Client [DEBUG]: Attempting to find chat input with selector:", chatInputSelector);
+    console.log("Gemini MCP Client [DEBUG]: Attempting to find chat input with selector:", chatInputSelector);
     const chatInputField = document.querySelector(chatInputSelector);
 
     if (!chatInputField) {
         console.error("Gemini MCP Client [ERROR]: Chat input field not found with selector:", chatInputSelector, "for injectAndSendMessage.");
         return Promise.reject("Chat input field not found.");
     }
-    // console.log("Gemini MCP Client [DEBUG]: Found chat input field for injection:", chatInputField);
+    console.log("Gemini MCP Client [DEBUG]: Found chat input field for injection:", chatInputField);
 
     if (isToolResult) {
         // For tool results (raw XML), inject as textContent directly.
         // No HTML wrapping or escaping, as it's raw XML to be sent.
         chatInputField.textContent = textToInject;
-        // console.log("Gemini MCP Client [DEBUG]: Injecting raw XML for tool result into input field.");
+        console.log("Gemini MCP Client [DEBUG]: Injecting raw XML for tool result into input field:", textToInject.substring(0, 100) + "...");
+        
+        // Store the tool result in a global variable for debugging
+        window.lastToolResult = textToInject;
     } else {
         // For prompts (plain text), inject as textContent
         chatInputField.textContent = textToInject;
-        // console.log("Gemini MCP Client [DEBUG]: Injected plain text for prompt.");
+        console.log("Gemini MCP Client [DEBUG]: Injected plain text for prompt.");
     }
 
     // Dispatch events (common for both cases)
@@ -154,11 +157,33 @@ function processPotentialMessageContainer(containerElement) {
     }
 
     // Log when this specific processor is entered
-    // console.log("Gemini MCP Client [DEBUG]: processPotentialMessageContainer triggered for:", containerElement);
+    console.log("Gemini MCP Client [DEBUG]: processPotentialMessageContainer triggered for:", containerElement);
 
-    const lineElements = containerElement.querySelectorAll('p.query-text-line');
+    // First try with the original selector that worked in v0.3
+    let lineElements = containerElement.querySelectorAll('p.query-text-line');
+    
+    // If that doesn't find anything, try with additional selectors
     if (lineElements.length === 0) {
-        // console.log("Gemini MCP Client [DEBUG]: No 'p.query-text-line' children found in container:", containerElement);
+        lineElements = containerElement.querySelectorAll('p, div > span');
+    }
+    
+    if (lineElements.length === 0) {
+        console.log("Gemini MCP Client [DEBUG]: No text elements found in container:", containerElement);
+        
+        // If no line elements, check if the container itself contains the text directly
+        if (containerElement.textContent) {
+            const directText = containerElement.textContent.trim();
+            
+            // Use the unescapeHtmlEntities function directly on the container text
+            const unescapedDirectXml = unescapeHtmlEntities(directText);
+            
+            // Check if it's a tool result, using the same logic as v0.3
+            if (unescapedDirectXml.trim().startsWith("<tool_result") && 
+                unescapedDirectXml.trim().endsWith("</tool_result>")) {
+                console.log("Gemini MCP Client [DEBUG]: Identified tool result in direct container text");
+                handleFoundCodeElement(containerElement, "directContainerText", true, unescapedDirectXml);
+            }
+        }
         return;
     }
 
@@ -169,25 +194,47 @@ function processPotentialMessageContainer(containerElement) {
 
     reconstructedXml = reconstructedXml.trim(); // Trim whitespace
 
-    // Use the unescapeHtmlEntities function
+    // Use the unescapeHtmlEntities function - this is the key part from v0.3
     const unescapedXml = unescapeHtmlEntities(reconstructedXml);
 
-    // console.log("Gemini MCP Client [DEBUG]: Reconstructed and Unescaped XML from message container:", unescapedXml.substring(0, 200) + "...");
+    console.log("Gemini MCP Client [DEBUG]: Reconstructed and Unescaped XML from message container:", 
+                unescapedXml.substring(0, 200) + "...");
 
-    // Normalize XML using the safe function
-    const normalizedXml = safeNormalizeXml(unescapedXml);
+    // Check if it's a tool result, using trim() on the unescaped XML - exactly as in v0.3
+    if (unescapedXml.trim().startsWith("<tool_result") && unescapedXml.trim().endsWith("</tool_result>")) {
+        console.log("Gemini MCP Client [DEBUG]: Identified tool result in message container:", containerElement);
         
-    // Check if it's a tool result, using trim() on the normalized XML
-    if (normalizedXml.trim().startsWith("<tool_result") && normalizedXml.trim().endsWith("</tool_result>")) {
-        // console.log("Gemini MCP Client [DEBUG]: Identified tool result in message container:", containerElement);
-        // Mark the container as processed by this specific path to avoid re-entry from other observers if any overlap
-        // containerElement.dataset.mcpProcessed = 'true'; // This is handled by handleFoundCodeElement on the passedElement
-
         // Call handleFoundCodeElement, passing the container as the element to be replaced,
-        // and the normalized XML.
-        // The 'sourceType' can indicate this new path.
-        // handleFoundCodeElement will need to be adapted to take this normalized XML.
-        handleFoundCodeElement(containerElement, "messageContainerResult", true, normalizedXml);
+        // and the unescaped XML - exactly as in v0.3
+        handleFoundCodeElement(containerElement, "messageContainerResult", true, unescapedXml);
+    } 
+    // Check if it's a tool result response that has been stripped of its XML tags
+    // This pattern looks for the format that appears in the logs: "    2    list_objects    {    "success": true, ..."
+    else if (unescapedXml.trim().match(/\s+\d+\s+\w+\s+\{/) || 
+             unescapedXml.includes("success") && unescapedXml.includes("message") && 
+             (unescapedXml.includes("objects") || unescapedXml.includes("result"))) {
+        
+        console.log("Gemini MCP Client [DEBUG]: Identified stripped tool result in message container:", containerElement);
+        
+        // Extract the call_id and tool_name from the text if possible
+        const parts = unescapedXml.trim().split(/\s+/);
+        let callId = null;
+        let toolName = null;
+        
+        if (parts.length >= 2 && !isNaN(parseInt(parts[0]))) {
+            callId = parts[0].trim();
+            toolName = parts[1].trim();
+        }
+        
+        // Reconstruct the tool result XML
+        const reconstructedXml = `<tool_result>
+  <call_id>${callId || "unknown"}</call_id>
+  <tool_name>${toolName || "unknown"}</tool_name>
+  <r>${unescapedXml}</r>
+</tool_result>`;
+        
+        // Call handleFoundCodeElement with the reconstructed XML
+        handleFoundCodeElement(containerElement, "reconstructedToolResult", true, reconstructedXml);
     } else {
         // console.log("Gemini MCP Client [DEBUG]: Reconstructed XML did not match tool_result structure:", unescapedXml.substring(0,100));
     }
@@ -240,17 +287,26 @@ function handleFoundCodeElement(passedElement, sourceType, isResultBlockFromCall
             
             // Update actualXml to use the normalized version
             actualXml = normalizedXml;
-        } else if (normalizedXml.startsWith("<tool_result") && normalizedXml.endsWith("</tool_result>")) {
+        } else if (normalizedXml.startsWith("<tool_result") && normalizedXml.endsWith("</tool_result>") ||
+                 actualXml.startsWith("<tool_result") && actualXml.endsWith("</tool_result>")) {
             // This case (finding a tool_result directly in a code tag not from processPotentialMessageContainer)
             // means Gemini rendered it inside a single code block.
             isResultBlock = true;
             isFunctionCall = false;
-            const match = normalizedXml.match(/<tool_result[^>]*call_id=["'](.*?)["']/);
+            
+            // Try to extract call_id from either normalized or actual XML
+            let match = normalizedXml.match(/<tool_result[^>]*call_id=["'](.*?)["']/);
+            if (!match) {
+                match = actualXml.match(/<tool_result[^>]*call_id=["'](.*?)["']/);
+            }
+            
             if (match && match[1]) parsedCallId = match[1];
             displayIdentifierText = parsedCallId ? `Tool Result ID: ${parsedCallId}` : "Tool Result";
             
-            // Update actualXml to use the normalized version
-            actualXml = normalizedXml;
+            // Use whichever XML version has the tool_result
+            if (normalizedXml.startsWith("<tool_result")) {
+                actualXml = normalizedXml;
+            }
         } else {
             // console.log("Gemini MCP Client [DEBUG]: Direct <code> element content does not match known structures. Skipping UI.", passedElement);
             // Unset mcpProcessed if we are not handling it, so other processors (if any) could try.
@@ -420,6 +476,8 @@ function handleFoundCodeElement(passedElement, sourceType, isResultBlockFromCall
         // If explicitXml was provided, passedElement is the container (e.g., div.query-text)
         // If explicitXml was null, passedElement is a <code> tag containing tool_result.
         // In both cases, we want to create a consistent UI for the tool result
+        
+        console.log("Gemini MCP Client [DEBUG]: Creating UI for tool result. Source:", sourceType);
         
         // First, create a wrapper to hold both the tool bar and the original content
         const resultWrapper = document.createElement('div');
@@ -646,13 +704,19 @@ document.addEventListener('click', function(event) {
 
 // Function to handle responses from the background script (coming from native host or for prompts)
 function handleBackgroundMessages(message) {
-  // console.log("Gemini MCP Client [DEBUG]: Received message from background script:", message);
+  console.log("Gemini MCP Client [DEBUG]: Received message from background script:", message);
   if (message.type === "FROM_NATIVE_HOST" && message.payload && message.payload.text_response) {
-    // console.log("Gemini MCP Client [DEBUG]: Received text_response from native host for injection:", message.payload.text_response);
+    console.log("Gemini MCP Client [DEBUG]: Received text_response from native host for injection:", 
+               message.payload.text_response.substring(0, 100) + "...");
+               
+    // Check if this is a tool result
+    const isToolResultResponse = message.payload.text_response.includes("<tool_result");
+    console.log("Is tool result response:", isToolResultResponse);
+    
     injectAndSendMessage(message.payload.text_response, true) // isToolResult is true for native host responses
         .then(success => {
             if (success) {
-                // console.log("Gemini MCP Client [DEBUG]: Successfully injected and sent native host response via injectAndSendMessage.");
+                console.log("Gemini MCP Client [DEBUG]: Successfully injected and sent native host response via injectAndSendMessage.");
             }
         })
         .catch(error => {
@@ -905,14 +969,70 @@ function finalProcessMutations(mutationsList, _observer) {
                         }
 
                         // 2. Handle potential message containers for tool results (fragmented XML)
+                        // First, check if the node itself is a div.query-text[dir="ltr"] (original v0.3 selector)
                         if (node.matches && node.matches('div.query-text[dir="ltr"]')) {
                             processPotentialMessageContainer(node);
                         }
+                        
                         // Also search for these containers within descendants, ensuring node is an Element
                         if (node.nodeType === Node.ELEMENT_NODE) {
+                            // First try the original v0.3 selector
                             const containers = node.querySelectorAll('div.query-text[dir="ltr"]');
                             containers.forEach(container => {
                                 processPotentialMessageContainer(container);
+                            });
+                            
+                            // Then try additional selectors for the new UI
+                            const additionalContainers = node.querySelectorAll(
+                                'div.model-response-text, pre, div.response-container, div.markdown-container'
+                            );
+                            
+                            if (additionalContainers.length > 0) {
+                                console.log(`Found ${additionalContainers.length} additional potential containers in node`);
+                                additionalContainers.forEach(container => {
+                                    processPotentialMessageContainer(container);
+                                });
+                            }
+                            
+                            // Also check for code elements that might contain tool results directly
+                            const codeElements = node.querySelectorAll('code');
+                            codeElements.forEach(codeEl => {
+                                if (!codeEl.closest('.mcp-tool-call-bar')) {
+                                    if (codeEl.textContent && codeEl.textContent.includes("<tool_result")) {
+                                        console.log("Found code element with potential tool result XML:", codeEl);
+                                        handleFoundCodeElement(codeEl, "code element with tool result", false, null);
+                                    } 
+                                    // Check for stripped tool results in code elements
+                                    else if (codeEl.textContent && 
+                                             (codeEl.textContent.match(/\s+\d+\s+\w+\s+\{/) ||
+                                              (codeEl.textContent.includes("success") && 
+                                               codeEl.textContent.includes("message") &&
+                                               (codeEl.textContent.includes("objects") || 
+                                                codeEl.textContent.includes("result"))))) {
+                                        
+                                        console.log("Found code element with stripped tool result:", codeEl);
+                                        
+                                        // Extract the call_id and tool_name if possible
+                                        const text = codeEl.textContent.trim();
+                                        const parts = text.split(/\s+/);
+                                        let callId = null;
+                                        let toolName = null;
+                                        
+                                        if (parts.length >= 2 && !isNaN(parseInt(parts[0]))) {
+                                            callId = parts[0].trim();
+                                            toolName = parts[1].trim();
+                                        }
+                                        
+                                        // Reconstruct the tool result XML
+                                        const reconstructedXml = `<tool_result>
+  <call_id>${callId || "unknown"}</call_id>
+  <tool_name>${toolName || "unknown"}</tool_name>
+  <r>${text}</r>
+</tool_result>`;
+                                        
+                                        handleFoundCodeElement(codeEl, "code element with reconstructed tool result", true, reconstructedXml);
+                                    }
+                                }
                             });
                         }
                     };
