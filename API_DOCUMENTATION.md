@@ -39,9 +39,9 @@ The API server runs on `http://localhost:8765` by default. You can change the po
 ```json
 {
   "status": "success",
-  "message": "Prompt received",
+  "message": "Prompt sent to browser extension",
   "prompt": "Your prompt text here",
-  "response": "Response from the MCP system"
+  "response": "Prompt successfully sent to browser extension"
 }
 ```
 

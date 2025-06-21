@@ -785,14 +785,47 @@ class MCPAPIHandler(BaseHTTPRequestHandler):
                     sys.stderr.write(f"API: Received prompt request: {prompt[:50]}...\n")
                     sys.stderr.flush()
                     
-                    # This is a prototype implementation that just returns the prompt
-                    # In a real implementation, this would process the prompt through the MCP system
-                    response = {
-                        'status': 'success',
-                        'message': 'Prompt received',
-                        'prompt': prompt,
-                        'response': f"This is a prototype response for: {prompt[:50]}..."
-                    }
+                    # We need to find a tab to send the prompt to
+                    # The browser extension background script will handle finding the active tab
+                    try:
+                        # We'll use a special tab ID that signals to the background script
+                        # that it should find the active tab
+                        tab_id = None  # The background script will find the active tab
+                            
+                        # Send the prompt to the browser extension
+                        # This is similar to how the system prompt is injected
+                        # We'll use the same message structure as REQUEST_PROMPT
+                        # but we'll include the custom prompt instead of the system prompt
+                        
+                        # Create a message to send to the content script
+                        message_to_send = {
+                            "type": "REQUEST_PROMPT",
+                            "tabId": tab_id,  # The background script will find the active tab
+                            "payload": {
+                                "type": "CUSTOM_PROMPT",
+                                "prompt": prompt
+                            }
+                        }
+                        
+                        # Send the message
+                        send_message(message_to_send)
+                        
+                        response = {
+                            'status': 'success',
+                            'message': 'Prompt sent to browser extension',
+                            'prompt': prompt,
+                            'response': "Prompt successfully sent to browser extension"
+                        }
+                    except Exception as e:
+                        sys.stderr.write(f"API: Error sending prompt: {str(e)}\n")
+                        sys.stderr.flush()
+                        self._set_response(500)
+                        response = {
+                            'status': 'error',
+                            'message': f'Error sending prompt: {str(e)}',
+                            'prompt': prompt
+                        }
+                        return
                     self._set_response()
             else:
                 self._set_response(404)
