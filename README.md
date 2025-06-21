@@ -1,6 +1,6 @@
 # Gemini MCP Client (Firefox Extension)
 
-This lightweight Firefox extension brings MCP (Multi-Call Protocol) capability to the Gemini Web Interface. It detects and intercepts tool calls made by Gemini, processes these calls, and sends responses back to Gemini.
+This lightweight Firefox extension brings MCP (Model Context Protocol) capability to the Gemini Web Interface. It detects and intercepts tool calls made by Gemini, processes these calls, and sends responses back to Gemini.
 
 ## Features
 
@@ -14,7 +14,7 @@ This lightweight Firefox extension brings MCP (Multi-Call Protocol) capability t
 
 ### 1. Install the Firefox Extension
 
-1. Download the latest release from the [Releases page](https://github.com/yourusername/gemini-mcp-client/releases)
+1. Download the latest release from the [Releases page](https://github.com/ngardiner/gemini-mcp-client/releases)
 2. Open Firefox and navigate to `about:addons`
 3. Click the gear icon and select "Install Add-on From File..."
 4. Select the downloaded `.xpi` file
@@ -100,7 +100,7 @@ To enable the API:
 run_native_host.bat --enable-api
 ```
 
-For more details, see the [API Documentation](API_DOCUMENTATION.md).
+For more details, see the [API Documentation](docs/API_DOCUMENTATION.md).
 
 ## Troubleshooting
 
@@ -109,11 +109,11 @@ If you encounter issues:
 1. Check that the native messaging host is properly configured
 2. Verify that the `mcp_servers_config.json` file is correctly formatted
 3. Look for error messages in the browser console (Ctrl+Shift+J or Cmd+Shift+J)
-4. For more detailed debugging, see the [Developer Documentation](DEVELOPER-README.md)
+4. For more detailed debugging, see the [Developer Documentation](docs/DEVELOPER-README.md)
 
 ## Credits
 
-Full credit to SuperAssistant for the initial inspiration. This project was created to address performance issues with the MCP-SuperAssistant extension on Chrome.
+Full credit to MCP-SuperAssistant for the initial inspiration. This project was created to address performance issues with the MCP-SuperAssistant extension on Chrome.
 
 ## License
 
