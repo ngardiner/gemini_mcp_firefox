@@ -221,7 +221,18 @@ async def _discover_tools_for_server_async(server_config, current_fastmcp_module
     if server_type == "streamable-http" or server_type == "sse":
         client_target = server_config.get('url')
     elif server_type == "stdio":
-        client_target = server_config.get('command')
+        # For stdio, fastmcp needs MCPConfig format
+        command = server_config.get('command')
+        args = server_config.get('args', [])
+        if command:
+            client_target = {
+                "mcpServers": {
+                    server_id: {
+                        "command": command,
+                        "args": args if args else []
+                    }
+                }
+            }
 
     if not client_target:
         sys.stderr.write(f"Async Discover: No valid client target for server '{server_id}' (type: {server_type}). Skipping.\n"); sys.stderr.flush() # Keep warning
@@ -263,7 +274,18 @@ async def _execute_tool_call_async(tool_name, parameters, server_config, current
     if server_type == "streamable-http" or server_type == "sse":
         client_target = server_config.get('url')
     elif server_type == "stdio":
-        client_target = server_config.get('command')
+        # For stdio, fastmcp needs MCPConfig format
+        command = server_config.get('command')
+        args = server_config.get('args', [])
+        if command:
+            client_target = {
+                "mcpServers": {
+                    mcp_server_id: {
+                        "command": command,
+                        "args": args if args else []
+                    }
+                }
+            }
 
     if not client_target:
         sys.stderr.write(f"Async Execute: No valid client target for server '{mcp_server_id}' (type: {server_type}) for tool '{tool_name}'.\n"); sys.stderr.flush() # Keep error
